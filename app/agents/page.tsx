@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Bot, Plus, Trash2, Brain, Cpu, Server, Wrench, Loader2, MessageSquare, Users, Clock, ChevronRight, Copy, Download, Upload, Sparkles } from 'lucide-react'
+import { Bot, Plus, Trash2, Brain, Cpu, Server, Wrench, Loader2, MessageSquare, Users, Clock, ChevronRight, Copy, Download, Upload, Sparkles, Store } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -29,6 +29,8 @@ import { useTools, type AgentTool } from '@/hooks/use-tools'
 import { useAgentActivity, type AgentActivitySummary, type AgentActivity } from '@/hooks/use-agent-activity'
 import { useAgentPresence } from '@/hooks/use-agent-presence'
 import { StatusIndicator, StatusBadge } from '@/components/agents/status-indicator'
+import { PublishAgentDialog, type PublishData } from '@/components/agents/publish-agent-dialog'
+import { useMarketplaceActions, type MarketplaceAgent } from '@/hooks/use-marketplace'
 import { getAgentColor } from '@/lib/demo-engine'
 import { formatDistanceToNow } from 'date-fns'
 import type { Agent } from '@/lib/supabase'
@@ -153,7 +155,12 @@ export default function AgentsPage() {
   const [duplicating, setDuplicating] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false)
+  const [publishingAgent, setPublishingAgent] = useState<Agent | null>(null)
+  const [existingListing, setExistingListing] = useState<MarketplaceAgent | null>(null)
+  const [publishedAgentIds, setPublishedAgentIds] = useState<Set<string>>(new Set())
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const { publishAgent, unpublishAgent, updateMarketplaceAgent, getPublishedListingBySourceAgent } = useMarketplaceActions()
   const [newAgent, setNewAgent] = useState({
     name: '',
     role: '',
@@ -199,6 +206,22 @@ export default function AgentsPage() {
       setActivityData(null)
     }
   }, [selectedAgent, loadActivity])
+
+  useEffect(() => {
+    async function checkPublishedAgents() {
+      if (isDemo || agents.length === 0) return
+
+      const publishedIds = new Set<string>()
+      for (const agent of agents) {
+        const listing = await getPublishedListingBySourceAgent(agent.id)
+        if (listing) {
+          publishedIds.add(agent.id)
+        }
+      }
+      setPublishedAgentIds(publishedIds)
+    }
+    checkPublishedAgents()
+  }, [agents, isDemo, getPublishedListingBySourceAgent])
 
   const handleLoadMoreActivity = async () => {
     if (!selectedAgent || !activityData?.hasMore) return
@@ -302,6 +325,32 @@ export default function AgentsPage() {
         fileInputRef.current.value = ''
       }
     }
+  }
+
+  const handleOpenPublishDialog = async (agent: Agent) => {
+    setPublishingAgent(agent)
+    const listing = await getPublishedListingBySourceAgent(agent.id)
+    setExistingListing(listing)
+    setPublishDialogOpen(true)
+  }
+
+  const handlePublishAgent = async (agentId: string, data: PublishData) => {
+    await publishAgent(agentId, data)
+    setPublishedAgentIds((prev) => new Set(prev).add(agentId))
+  }
+
+  const handleUpdateListing = async (listingId: string, updates: Partial<MarketplaceAgent>) => {
+    await updateMarketplaceAgent(listingId, updates)
+  }
+
+  const handleUnpublishAgent = async (listingId: string) => {
+    if (!publishingAgent) return
+    await unpublishAgent(listingId)
+    setPublishedAgentIds((prev) => {
+      const next = new Set(prev)
+      next.delete(publishingAgent.id)
+      return next
+    })
   }
 
   return (
@@ -413,10 +462,18 @@ export default function AgentsPage() {
                           </div>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{agent.name}</p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-medium truncate">{agent.name}</p>
+                            {publishedAgentIds.has(agent.id) && (
+                              <Badge variant="default" className="text-[10px] px-1.5 py-0">
+                                <Store className="w-2.5 h-2.5 mr-0.5" />
+                                Published
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-xs text-muted-foreground truncate">{agent.role}</p>
                         </div>
-                        <Badge variant="secondary" className="text-xs">
+                        <Badge variant="secondary" className="text-xs shrink-0">
                           {agent.framework}
                         </Badge>
                       </motion.div>
@@ -456,6 +513,12 @@ export default function AgentsPage() {
                         status={getAgentStatus(selectedAgent.id).status}
                         activityType={getAgentStatus(selectedAgent.id).activityType}
                       />
+                      {publishedAgentIds.has(selectedAgent.id) && (
+                        <Badge variant="default" className="text-xs">
+                          <Store className="w-3 h-3 mr-1" />
+                          Published
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-muted-foreground">{selectedAgent.role}</p>
                   </div>
@@ -709,7 +772,14 @@ export default function AgentsPage() {
                   </TabsContent>
                 </Tabs>
 
-                <div className="flex justify-end gap-2 mt-6 pt-6 border-t border-border">
+                <div className="flex flex-wrap justify-end gap-2 mt-6 pt-6 border-t border-border">
+                  <Button
+                    variant="outline"
+                    onClick={() => handleOpenPublishDialog(selectedAgent)}
+                  >
+                    <Store className="w-4 h-4 mr-2" />
+                    {publishedAgentIds.has(selectedAgent.id) ? 'Edit Listing' : 'Publish'}
+                  </Button>
                   <Button
                     variant="outline"
                     onClick={handleExportAgent}
@@ -814,6 +884,18 @@ export default function AgentsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {publishingAgent && (
+        <PublishAgentDialog
+          open={publishDialogOpen}
+          onOpenChange={setPublishDialogOpen}
+          agent={publishingAgent}
+          existingListing={existingListing}
+          onPublish={handlePublishAgent}
+          onUpdate={handleUpdateListing}
+          onUnpublish={handleUnpublishAgent}
+        />
+      )}
       </div>
     </PageTransition>
   )

@@ -292,6 +292,29 @@ export function useMarketplaceAgent(agentId: string) {
 export function useMarketplaceActions() {
   const [loading, setLoading] = useState(false);
 
+  const getPublishedListingBySourceAgent = async (sourceAgentId: string): Promise<MarketplaceAgent | null> => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+
+      const { data, error } = await supabase
+        .from('marketplace_agents')
+        .select(`
+          *,
+          category:marketplace_categories(*)
+        `)
+        .eq('source_agent_id', sourceAgentId)
+        .eq('creator_id', user.id)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching published listing:', error);
+      return null;
+    }
+  };
+
   const publishAgent = async (agentId: string, marketplaceData: {
     name: string;
     slug: string;
@@ -312,16 +335,26 @@ export function useMarketplaceActions() {
 
       const { data: sourceAgent } = await supabase
         .from('agents')
-        .select('configuration')
+        .select('*')
         .eq('id', agentId)
         .single();
+
+      if (!sourceAgent) throw new Error('Source agent not found');
+
+      const configuration = {
+        system_prompt: sourceAgent.system_prompt,
+        model: sourceAgent.model,
+        framework: sourceAgent.framework,
+        role: sourceAgent.role,
+        settings: sourceAgent.settings,
+      };
 
       const { data, error } = await supabase
         .from('marketplace_agents')
         .insert({
           creator_id: user.id,
           source_agent_id: agentId,
-          configuration: sourceAgent?.configuration || {},
+          configuration,
           is_published: true,
           published_at: new Date().toISOString(),
           ...marketplaceData,
@@ -336,6 +369,26 @@ export function useMarketplaceActions() {
     } catch (error) {
       console.error('Error publishing agent:', error);
       toast.error('Failed to publish agent');
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const unpublishAgent = async (listingId: string) => {
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('marketplace_agents')
+        .delete()
+        .eq('id', listingId);
+
+      if (error) throw error;
+
+      toast.success('Agent removed from marketplace');
+    } catch (error) {
+      console.error('Error unpublishing agent:', error);
+      toast.error('Failed to unpublish agent');
       throw error;
     } finally {
       setLoading(false);
@@ -519,7 +572,9 @@ export function useMarketplaceActions() {
 
   return {
     loading,
+    getPublishedListingBySourceAgent,
     publishAgent,
+    unpublishAgent,
     updateMarketplaceAgent,
     installAgent,
     createReview,
