@@ -56,14 +56,14 @@ Add the ability for users to publish their agents to the marketplace directly fr
 - Create `components/agents/publish-agent-dialog.tsx`
 
 **Acceptance Criteria:**
-- [ ] "Publish" button appears on user's agent cards
-- [ ] Publish dialog opens with all required fields
-- [ ] Can select pricing model (free, one-time $1-999, subscription $1-99/mo)
-- [ ] Validation prevents publishing incomplete agents
-- [ ] Successfully creates marketplace listing
-- [ ] Published agents show "Published" badge in agents list
-- [ ] Can update published listing from agents page
-- [ ] Can unpublish/remove from marketplace
+- [X] "Publish" button appears on user's agent cards
+- [X] Publish dialog opens with all required fields
+- [X] Can select pricing model (free, one-time $1-999, subscription $1-99/mo)
+- [X] Validation prevents publishing incomplete agents
+- [X] Successfully creates marketplace listing
+- [X] Published agents show "Published" badge in agents list
+- [X] Can update published listing from agents page
+- [X] Can unpublish/remove from marketplace
 
 ---
 
