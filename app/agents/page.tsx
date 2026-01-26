@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Bot, Plus, Trash2, Brain, Cpu, Server, Wrench, Loader2, MessageSquare, Users, Clock, ChevronRight, Copy, Download, Upload, Sparkles, Store } from 'lucide-react'
+import { Bot, Plus, Trash2, Brain, Cpu, Server, Wrench, Loader2, MessageSquare, Users, Clock, ChevronRight, Copy, Download, Upload, Sparkles, Store, ArrowUpCircle, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -31,8 +31,10 @@ import { useAgentPresence } from '@/hooks/use-agent-presence'
 import { StatusIndicator, StatusBadge } from '@/components/agents/status-indicator'
 import { PublishAgentDialog, type PublishData } from '@/components/agents/publish-agent-dialog'
 import { useMarketplaceActions, type MarketplaceAgent } from '@/hooks/use-marketplace'
+import { useDefaultAgents, type TemplateVersionInfo } from '@/hooks/use-default-agents'
 import { getAgentColor } from '@/lib/demo-engine'
 import { formatDistanceToNow } from 'date-fns'
+import { toast } from 'sonner'
 import type { Agent } from '@/lib/supabase'
 
 const frameworks = [
@@ -161,6 +163,11 @@ export default function AgentsPage() {
   const [publishedAgentIds, setPublishedAgentIds] = useState<Set<string>>(new Set())
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { publishAgent, unpublishAgent, updateMarketplaceAgent, getPublishedListingBySourceAgent } = useMarketplaceActions()
+  const { checkForUpdates, upgradeAgent } = useDefaultAgents()
+  const [updateInfo, setUpdateInfo] = useState<TemplateVersionInfo | null>(null)
+  const [checkingUpdates, setCheckingUpdates] = useState(false)
+  const [upgrading, setUpgrading] = useState(false)
+  const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false)
   const [newAgent, setNewAgent] = useState({
     name: '',
     role: '',
@@ -351,6 +358,42 @@ export default function AgentsPage() {
       next.delete(publishingAgent.id)
       return next
     })
+  }
+
+  const handleCheckForUpdates = async (agent: Agent) => {
+    if (!agent.source_template_id || !agent.source_template_version) return
+
+    setCheckingUpdates(true)
+    try {
+      const info = await checkForUpdates(agent.source_template_id, agent.source_template_version)
+      setUpdateInfo(info)
+      if (info?.hasUpdate) {
+        setUpgradeDialogOpen(true)
+      } else {
+        toast.success('Agent is up to date')
+      }
+    } catch (err) {
+      toast.error('Failed to check for updates')
+    } finally {
+      setCheckingUpdates(false)
+    }
+  }
+
+  const handleUpgradeAgent = async (preserveCustomizations: boolean) => {
+    if (!selectedAgent || !updateInfo) return
+
+    setUpgrading(true)
+    try {
+      await upgradeAgent(selectedAgent.id, updateInfo.templateId, preserveCustomizations)
+      toast.success('Agent upgraded successfully')
+      setUpgradeDialogOpen(false)
+      setUpdateInfo(null)
+      fetchAgents()
+    } catch (err) {
+      toast.error('Failed to upgrade agent')
+    } finally {
+      setUpgrading(false)
+    }
   }
 
   return (
@@ -772,6 +815,31 @@ export default function AgentsPage() {
                   </TabsContent>
                 </Tabs>
 
+                {selectedAgent.source_template_id && (
+                  <div className="flex items-center justify-between p-3 mt-6 rounded-lg bg-muted/50 border border-border">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-primary" />
+                      <span className="text-sm">
+                        Created from template
+                        {selectedAgent.source_template_version && (
+                          <Badge variant="outline" className="ml-2 font-mono text-xs">
+                            v{selectedAgent.source_template_version}
+                          </Badge>
+                        )}
+                      </span>
+                    </div>
+                    <LoadingButton
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleCheckForUpdates(selectedAgent)}
+                      loading={checkingUpdates}
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Check for Updates
+                    </LoadingButton>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap justify-end gap-2 mt-6 pt-6 border-t border-border">
                   <Button
                     variant="outline"
@@ -896,6 +964,71 @@ export default function AgentsPage() {
           onUnpublish={handleUnpublishAgent}
         />
       )}
+
+      <Dialog open={upgradeDialogOpen} onOpenChange={setUpgradeDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowUpCircle className="w-5 h-5 text-primary" />
+              Update Available
+            </DialogTitle>
+            <DialogDescription>
+              A newer version of this template is available
+            </DialogDescription>
+          </DialogHeader>
+
+          {updateInfo && (
+            <div className="space-y-4 py-4">
+              <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                <div>
+                  <span className="text-sm text-muted-foreground">Current Version</span>
+                  <p className="font-mono font-medium">v{updateInfo.currentVersion}</p>
+                </div>
+                <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                <div>
+                  <span className="text-sm text-muted-foreground">Latest Version</span>
+                  <p className="font-mono font-medium text-primary">v{updateInfo.latestVersion}</p>
+                </div>
+              </div>
+
+              {updateInfo.changelog && (
+                <div>
+                  <h4 className="text-sm font-medium mb-2">Changelog</h4>
+                  <p className="text-sm text-muted-foreground p-3 rounded-lg bg-muted/30 border border-border">
+                    {updateInfo.changelog}
+                  </p>
+                </div>
+              )}
+
+              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                <p className="text-sm text-amber-700 dark:text-amber-300">
+                  You can choose to preserve your customizations or replace everything with the new template version.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setUpgradeDialogOpen(false)}>
+              Cancel
+            </Button>
+            <LoadingButton
+              variant="outline"
+              onClick={() => handleUpgradeAgent(false)}
+              loading={upgrading}
+            >
+              Replace All
+            </LoadingButton>
+            <LoadingButton
+              onClick={() => handleUpgradeAgent(true)}
+              loading={upgrading}
+            >
+              <ArrowUpCircle className="w-4 h-4 mr-2" />
+              Keep My Changes
+            </LoadingButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       </div>
     </PageTransition>
   )

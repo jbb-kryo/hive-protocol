@@ -126,7 +126,12 @@ function TemplateCard({
             )}
           </div>
           <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">{template.framework}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">{template.framework}</span>
+              <Badge variant="outline" className="text-[10px] font-mono">
+                v{template.version || '1.0.0'}
+              </Badge>
+            </div>
             <Button variant="ghost" size="sm" className="h-7 gap-1 group-hover:bg-primary group-hover:text-primary-foreground">
               Use Template
               <ArrowRight className="w-3 h-3" />
@@ -179,7 +184,7 @@ function TemplatePreviewDialog({
         <div className="space-y-4">
           <div>
             <h4 className="text-sm font-medium mb-2">Configuration</h4>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-3 gap-3 text-sm">
               <div className="bg-muted/50 rounded-lg p-3">
                 <span className="text-muted-foreground block text-xs mb-1">Framework</span>
                 <span className="font-medium">{template.framework}</span>
@@ -187,6 +192,10 @@ function TemplatePreviewDialog({
               <div className="bg-muted/50 rounded-lg p-3">
                 <span className="text-muted-foreground block text-xs mb-1">Role</span>
                 <span className="font-medium">{template.role || 'General'}</span>
+              </div>
+              <div className="bg-muted/50 rounded-lg p-3">
+                <span className="text-muted-foreground block text-xs mb-1">Version</span>
+                <span className="font-medium font-mono">v{template.version || '1.0.0'}</span>
               </div>
             </div>
           </div>

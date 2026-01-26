@@ -32,6 +32,8 @@ export type Agent = {
   model: string | null
   system_prompt: string | null
   settings: Record<string, unknown>
+  source_template_id?: string | null
+  source_template_version?: string | null
   created_at: string
 }
 

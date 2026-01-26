@@ -19,6 +19,9 @@ export interface DefaultAgent {
   tags: string[]
   category: string
   icon: string
+  version: string
+  changelog: string | null
+  previous_version_id: string | null
   created_at: string
   updated_at: string
 }
@@ -33,6 +36,16 @@ export interface CreateTemplateData {
   tags?: string[]
   category?: string
   icon?: string
+  version?: string
+  changelog?: string
+}
+
+export interface TemplateVersionInfo {
+  currentVersion: string
+  latestVersion: string
+  hasUpdate: boolean
+  changelog: string | null
+  templateId: string
 }
 
 export function useDefaultAgents() {
@@ -109,6 +122,8 @@ export function useDefaultAgents() {
         model: null,
         system_prompt: template.system_prompt,
         settings: template.settings || {},
+        source_template_id: template.id,
+        source_template_version: template.version,
         created_at: new Date().toISOString(),
       }
       addAgent(newAgent)
@@ -123,6 +138,8 @@ export function useDefaultAgents() {
         framework: template.framework,
         system_prompt: template.system_prompt,
         settings: template.settings || {},
+        source_template_id: template.id,
+        source_template_version: template.version,
       })
       .select()
       .single()
@@ -146,6 +163,8 @@ export function useDefaultAgents() {
       tags: data.tags || [],
       category: data.category || 'general',
       icon: data.icon || 'Bot',
+      version: data.version || '1.0.0',
+      changelog: data.changelog || 'Initial release',
       is_active: true,
       sort_order: templates.length + 1,
     }
@@ -193,6 +212,12 @@ export function useDefaultAgents() {
     }
     if (updates.icon !== undefined) {
       sanitizedUpdates.icon = updates.icon
+    }
+    if (updates.version !== undefined) {
+      sanitizedUpdates.version = updates.version
+    }
+    if (updates.changelog !== undefined) {
+      sanitizedUpdates.changelog = updates.changelog
     }
 
     sanitizedUpdates.updated_at = new Date().toISOString()
@@ -283,6 +308,198 @@ export function useDefaultAgents() {
     )
   }, [templates])
 
+  const createNewVersion = useCallback(async (
+    templateId: string,
+    newVersion: string,
+    changelog: string,
+    updates: Partial<CreateTemplateData>
+  ) => {
+    const currentTemplate = templates.find(t => t.id === templateId)
+    if (!currentTemplate) throw new Error('Template not found')
+
+    const sanitizedUpdates: Record<string, unknown> = {
+      version: newVersion,
+      changelog: changelog,
+      previous_version_id: templateId,
+      updated_at: new Date().toISOString(),
+    }
+
+    if (updates.name !== undefined) {
+      sanitizedUpdates.name = sanitizeAgentName(updates.name)
+    }
+    if (updates.role !== undefined) {
+      sanitizedUpdates.role = updates.role ? sanitizeText(updates.role) : null
+    }
+    if (updates.framework !== undefined) {
+      sanitizedUpdates.framework = updates.framework
+    }
+    if (updates.system_prompt !== undefined) {
+      sanitizedUpdates.system_prompt = updates.system_prompt ? sanitizeAgentPrompt(updates.system_prompt) : null
+    }
+    if (updates.settings !== undefined) {
+      sanitizedUpdates.settings = updates.settings
+    }
+    if (updates.description !== undefined) {
+      sanitizedUpdates.description = updates.description ? sanitizeText(updates.description) : null
+    }
+    if (updates.tags !== undefined) {
+      sanitizedUpdates.tags = updates.tags
+    }
+    if (updates.category !== undefined) {
+      sanitizedUpdates.category = updates.category
+    }
+    if (updates.icon !== undefined) {
+      sanitizedUpdates.icon = updates.icon
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from('default_agents')
+      .update(sanitizedUpdates)
+      .eq('id', templateId)
+      .select()
+      .single()
+
+    if (updateError) {
+      throw updateError
+    }
+
+    setTemplates(prev => prev.map(t => t.id === templateId ? updated : t))
+    return updated
+  }, [templates])
+
+  const getVersionHistory = useCallback(async (templateId: string): Promise<DefaultAgent[]> => {
+    const history: DefaultAgent[] = []
+    let currentId: string | null = templateId
+
+    while (currentId) {
+      const result = await supabase
+        .from('default_agents')
+        .select('*')
+        .eq('id', currentId)
+        .maybeSingle()
+
+      const versionData = result.data as DefaultAgent | null
+      if (versionData) {
+        history.push(versionData)
+        currentId = versionData.previous_version_id
+      } else {
+        currentId = null
+      }
+    }
+
+    return history
+  }, [])
+
+  const checkForUpdates = useCallback(async (
+    sourceTemplateId: string,
+    currentVersion: string
+  ): Promise<TemplateVersionInfo | null> => {
+    const { data: template } = await supabase
+      .from('default_agents')
+      .select('id, version, changelog')
+      .eq('id', sourceTemplateId)
+      .maybeSingle()
+
+    if (!template) return null
+
+    const hasUpdate = template.version !== currentVersion &&
+      compareVersions(template.version, currentVersion) > 0
+
+    return {
+      currentVersion,
+      latestVersion: template.version,
+      hasUpdate,
+      changelog: template.changelog,
+      templateId: sourceTemplateId,
+    }
+  }, [])
+
+  const upgradeAgent = useCallback(async (
+    agentId: string,
+    templateId: string,
+    preserveCustomizations: boolean = true
+  ) => {
+    const { data: template } = await supabase
+      .from('default_agents')
+      .select('*')
+      .eq('id', templateId)
+      .single()
+
+    if (!template) throw new Error('Template not found')
+
+    const { data: agent } = await supabase
+      .from('agents')
+      .select('*')
+      .eq('id', agentId)
+      .single()
+
+    if (!agent) throw new Error('Agent not found')
+
+    const updates: Record<string, unknown> = {
+      source_template_version: template.version,
+    }
+
+    if (!preserveCustomizations) {
+      updates.system_prompt = template.system_prompt
+      updates.settings = template.settings
+      updates.role = template.role
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from('agents')
+      .update(updates)
+      .eq('id', agentId)
+      .select()
+      .single()
+
+    if (updateError) {
+      throw updateError
+    }
+
+    return updated
+  }, [])
+
+  const rollbackTemplate = useCallback(async (templateId: string) => {
+    const { data: currentTemplate } = await supabase
+      .from('default_agents')
+      .select('*')
+      .eq('id', templateId)
+      .single()
+
+    if (!currentTemplate?.previous_version_id) {
+      throw new Error('No previous version available')
+    }
+
+    const history = await getVersionHistory(currentTemplate.previous_version_id)
+    if (history.length === 0) {
+      throw new Error('Previous version not found')
+    }
+
+    const previousVersion = history[0]
+
+    const { data: updated, error: updateError } = await supabase
+      .from('default_agents')
+      .update({
+        version: previousVersion.version,
+        changelog: `Rolled back from ${currentTemplate.version}`,
+        system_prompt: previousVersion.system_prompt,
+        settings: previousVersion.settings,
+        description: previousVersion.description,
+        tags: previousVersion.tags,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', templateId)
+      .select()
+      .single()
+
+    if (updateError) {
+      throw updateError
+    }
+
+    setTemplates(prev => prev.map(t => t.id === templateId ? updated : t))
+    return updated
+  }, [getVersionHistory])
+
   return {
     templates,
     loading,
@@ -298,5 +515,23 @@ export function useDefaultAgents() {
     getCategories,
     getTemplatesByCategory,
     searchTemplates,
+    createNewVersion,
+    getVersionHistory,
+    checkForUpdates,
+    upgradeAgent,
+    rollbackTemplate,
   }
+}
+
+function compareVersions(v1: string, v2: string): number {
+  const parts1 = v1.split('.').map(Number)
+  const parts2 = v2.split('.').map(Number)
+
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const p1 = parts1[i] || 0
+    const p2 = parts2[i] || 0
+    if (p1 > p2) return 1
+    if (p1 < p2) return -1
+  }
+  return 0
 }

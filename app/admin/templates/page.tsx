@@ -7,7 +7,7 @@ import {
   Code, PenTool, BarChart, Headphones, TrendingUp,
   FileText, Shield, Layout, Kanban, Brain, Cpu, Server, Search, Loader2,
   GraduationCap, Target, Globe, FlaskConical, History, GitMerge, BarChart3,
-  ChevronLeft, Sparkles
+  ChevronLeft, Sparkles, Tag, RotateCcw, ArrowUpCircle
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -84,6 +84,8 @@ interface TemplateFormData {
   tags: string
   category: string
   icon: string
+  version: string
+  changelog: string
 }
 
 const defaultFormData: TemplateFormData = {
@@ -95,6 +97,8 @@ const defaultFormData: TemplateFormData = {
   tags: '',
   category: 'general',
   icon: 'Bot',
+  version: '1.0.0',
+  changelog: 'Initial release',
 }
 
 function TemplateFormDialog({
@@ -123,6 +127,8 @@ function TemplateFormDialog({
         tags: template.tags.join(', '),
         category: template.category,
         icon: template.icon,
+        version: template.version || '1.0.0',
+        changelog: template.changelog || '',
       })
     } else {
       setFormData(defaultFormData)
@@ -268,6 +274,32 @@ function TemplateFormDialog({
               placeholder="e.g., research, analysis, academic"
             />
           </div>
+
+          <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border">
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Tag className="w-4 h-4" />
+                Version
+              </Label>
+              <Input
+                value={formData.version}
+                onChange={(e) => setFormData({ ...formData, version: e.target.value })}
+                placeholder="e.g., 1.0.0"
+              />
+              <p className="text-xs text-muted-foreground">
+                Semantic versioning (major.minor.patch)
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Changelog</Label>
+              <Textarea
+                value={formData.changelog}
+                onChange={(e) => setFormData({ ...formData, changelog: e.target.value })}
+                placeholder="What changed in this version..."
+                rows={2}
+              />
+            </div>
+          </div>
         </div>
 
         <DialogFooter>
@@ -294,6 +326,8 @@ export default function AdminTemplatesPage() {
     updateTemplate,
     toggleTemplateActive,
     deleteTemplate,
+    getVersionHistory,
+    rollbackTemplate,
   } = useDefaultAgents()
 
   const [formOpen, setFormOpen] = useState(false)
@@ -303,6 +337,11 @@ export default function AdminTemplatesPage() {
   const [submitting, setSubmitting] = useState(false)
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false)
+  const [versionHistory, setVersionHistory] = useState<DefaultAgent[]>([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [selectedHistoryTemplate, setSelectedHistoryTemplate] = useState<DefaultAgent | null>(null)
+  const [rollingBack, setRollingBack] = useState(false)
 
   useEffect(() => {
     fetchAllTemplates()
@@ -372,6 +411,8 @@ export default function AdminTemplatesPage() {
         tags,
         category: data.category,
         icon: data.icon,
+        version: data.version || '1.0.0',
+        changelog: data.changelog || undefined,
       }
 
       if (editingTemplate) {
@@ -386,6 +427,38 @@ export default function AdminTemplatesPage() {
       toast.error(editingTemplate ? 'Failed to update template' : 'Failed to create template')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleViewHistory = async (template: DefaultAgent) => {
+    setSelectedHistoryTemplate(template)
+    setLoadingHistory(true)
+    setHistoryDialogOpen(true)
+    try {
+      const history = await getVersionHistory(template.id)
+      setVersionHistory(history)
+    } catch (err) {
+      toast.error('Failed to load version history')
+    } finally {
+      setLoadingHistory(false)
+    }
+  }
+
+  const handleRollback = async (template: DefaultAgent) => {
+    if (!template.previous_version_id) {
+      toast.error('No previous version available')
+      return
+    }
+
+    setRollingBack(true)
+    try {
+      await rollbackTemplate(template.id)
+      toast.success('Template rolled back successfully')
+      setHistoryDialogOpen(false)
+    } catch (err) {
+      toast.error('Failed to rollback template')
+    } finally {
+      setRollingBack(false)
     }
   }
 
@@ -448,10 +521,11 @@ export default function AdminTemplatesPage() {
                       <TableHead className="w-[50px]"></TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Category</TableHead>
+                      <TableHead>Version</TableHead>
                       <TableHead>Framework</TableHead>
                       <TableHead>Tags</TableHead>
                       <TableHead className="w-[100px] text-center">Status</TableHead>
-                      <TableHead className="w-[120px]">Actions</TableHead>
+                      <TableHead className="w-[150px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -483,6 +557,24 @@ export default function AdminTemplatesPage() {
                               <Badge variant="secondary" className="capitalize">
                                 {template.category}
                               </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1.5">
+                                <Badge variant="outline" className="font-mono text-xs">
+                                  v{template.version || '1.0.0'}
+                                </Badge>
+                                {template.previous_version_id && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => handleViewHistory(template)}
+                                    title="View version history"
+                                  >
+                                    <History className="w-3 h-3" />
+                                  </Button>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell>
                               <span className="text-sm">{template.framework}</span>
@@ -518,8 +610,18 @@ export default function AdminTemplatesPage() {
                                   size="icon"
                                   className="h-8 w-8"
                                   onClick={() => handleEdit(template)}
+                                  title="Edit template"
                                 >
                                   <Pencil className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleViewHistory(template)}
+                                  title="Version history"
+                                >
+                                  <History className="w-4 h-4" />
                                 </Button>
                                 <Button
                                   variant="ghost"
@@ -527,6 +629,7 @@ export default function AdminTemplatesPage() {
                                   className="h-8 w-8 text-destructive hover:text-destructive"
                                   onClick={() => handleDelete(template)}
                                   disabled={deletingId === template.id}
+                                  title="Delete template"
                                 >
                                   {deletingId === template.id ? (
                                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -575,6 +678,81 @@ export default function AdminTemplatesPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <History className="w-5 h-5" />
+                Version History
+              </DialogTitle>
+              <DialogDescription>
+                {selectedHistoryTemplate?.name} - View past versions and rollback if needed
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              {loadingHistory ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : versionHistory.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">
+                  No version history available
+                </p>
+              ) : (
+                <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                  {versionHistory.map((version, index) => (
+                    <div
+                      key={version.id}
+                      className={`p-4 rounded-lg border ${
+                        index === 0 ? 'border-primary bg-primary/5' : 'border-border'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={index === 0 ? 'default' : 'outline'}
+                            className="font-mono"
+                          >
+                            v{version.version}
+                          </Badge>
+                          {index === 0 && (
+                            <Badge variant="secondary" className="text-xs">
+                              Current
+                            </Badge>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(version.updated_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {version.changelog || 'No changelog provided'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setHistoryDialogOpen(false)}>
+                Close
+              </Button>
+              {selectedHistoryTemplate?.previous_version_id && (
+                <LoadingButton
+                  variant="destructive"
+                  onClick={() => selectedHistoryTemplate && handleRollback(selectedHistoryTemplate)}
+                  loading={rollingBack}
+                >
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  Rollback to Previous
+                </LoadingButton>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </PageTransition>
   )
