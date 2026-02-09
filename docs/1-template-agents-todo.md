@@ -366,13 +366,13 @@ Enable templates to inherit from or compose other templates, allowing creation o
 5. Dependency resolution and circular reference prevention
 
 **Acceptance Criteria:**
-- [ ] Templates can specify a parent template
-- [ ] Child inherits parent's base configuration
-- [ ] Can override specific fields in child
-- [ ] Composition combines prompts intelligently
-- [ ] UI shows template hierarchy
-- [ ] Circular dependencies prevented
-- [ ] Parent updates optionally propagate to children
+- [X] Templates can specify a parent template
+- [X] Child inherits parent's base configuration
+- [X] Can override specific fields in child
+- [X] Composition combines prompts intelligently
+- [X] UI shows template hierarchy
+- [X] Circular dependencies prevented
+- [X] Parent updates optionally propagate to children
 
 ---
 
