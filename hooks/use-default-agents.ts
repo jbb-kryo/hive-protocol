@@ -22,6 +22,12 @@ export interface DefaultAgent {
   version: string
   changelog: string | null
   previous_version_id: string | null
+  is_featured: boolean
+  featured_until: string | null
+  featured_at: string | null
+  average_rating: number
+  review_count: number
+  clone_count: number
   created_at: string
   updated_at: string
 }
@@ -563,12 +569,88 @@ export function useDefaultAgents() {
     return results
   }, [])
 
+  const fetchFeaturedTemplates = useCallback(async (): Promise<DefaultAgent[]> => {
+    const now = new Date().toISOString()
+    const { data, error: fetchError } = await supabase
+      .from('default_agents')
+      .select('*')
+      .eq('is_active', true)
+      .eq('is_featured', true)
+      .or(`featured_until.is.null,featured_until.gt.${now}`)
+      .order('featured_at', { ascending: false })
+      .limit(6)
+
+    if (fetchError) {
+      console.error('Error fetching featured templates:', fetchError)
+      return []
+    }
+    return data || []
+  }, [])
+
+  const setFeatured = useCallback(async (id: string, featuredUntil?: string | null) => {
+    const { data: currentFeatured } = await supabase
+      .from('default_agents')
+      .select('id')
+      .eq('is_featured', true)
+
+    if (currentFeatured && currentFeatured.length >= 6) {
+      const template = currentFeatured.find(t => t.id === id)
+      if (!template) {
+        throw new Error('Maximum of 6 featured templates reached. Unfeature one first.')
+      }
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from('default_agents')
+      .update({
+        is_featured: true,
+        featured_at: new Date().toISOString(),
+        featured_until: featuredUntil || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (updateError) throw updateError
+    setTemplates(prev => prev.map(t => t.id === id ? updated : t))
+    return updated
+  }, [])
+
+  const unsetFeatured = useCallback(async (id: string) => {
+    const { data: updated, error: updateError } = await supabase
+      .from('default_agents')
+      .update({
+        is_featured: false,
+        featured_at: null,
+        featured_until: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (updateError) throw updateError
+    setTemplates(prev => prev.map(t => t.id === id ? updated : t))
+    return updated
+  }, [])
+
+  const getFeaturedCount = useCallback(async (): Promise<number> => {
+    const { data } = await supabase
+      .from('default_agents')
+      .select('id')
+      .eq('is_featured', true)
+
+    return data?.length || 0
+  }, [])
+
   return {
     templates,
     loading,
     error,
     fetchTemplates,
     fetchAllTemplates,
+    fetchFeaturedTemplates,
     cloneTemplate,
     createTemplate,
     updateTemplate,
@@ -584,6 +666,9 @@ export function useDefaultAgents() {
     upgradeAgent,
     rollbackTemplate,
     batchDeployToSwarms,
+    setFeatured,
+    unsetFeatured,
+    getFeaturedCount,
   }
 }
 

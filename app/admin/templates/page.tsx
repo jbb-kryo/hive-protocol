@@ -8,7 +8,7 @@ import {
   FileText, Shield, Layout, Kanban, Brain, Cpu, Server, Search, Loader2,
   GraduationCap, Target, Globe, FlaskConical, History, GitMerge, BarChart3,
   ChevronLeft, Sparkles, Tag, RotateCcw, ArrowUpCircle, Rocket,
-  Store, Download, Eye, Star, MessageSquare
+  Store, Download, Eye, Star, MessageSquare, Award, CalendarDays
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -347,6 +347,9 @@ export default function AdminTemplatesPage() {
     deleteTemplate,
     getVersionHistory,
     rollbackTemplate,
+    setFeatured,
+    unsetFeatured,
+    getFeaturedCount,
   } = useDefaultAgents()
   const { getTemplateMarketplaceStats } = useMarketplaceActions()
   const { getRatingStatsForTemplates } = useTemplateReviewActions()
@@ -369,6 +372,11 @@ export default function AdminTemplatesPage() {
   const [promoteTemplate, setPromoteTemplate] = useState<DefaultAgent | null>(null)
   const [moderationDialogOpen, setModerationDialogOpen] = useState(false)
   const [moderationTemplate, setModerationTemplate] = useState<DefaultAgent | null>(null)
+  const [featuredDialogOpen, setFeaturedDialogOpen] = useState(false)
+  const [featuredTemplate, setFeaturedTemplate] = useState<DefaultAgent | null>(null)
+  const [featuredUntil, setFeaturedUntil] = useState('')
+  const [featuringId, setFeaturingId] = useState<string | null>(null)
+  const [featuredCount, setFeaturedCount] = useState(0)
   const [marketplaceStats, setMarketplaceStats] = useState<Record<string, TemplateMarketplaceStats>>({})
   const [ratingStats, setRatingStats] = useState<Record<string, TemplateRatingStats>>({})
 
@@ -388,13 +396,19 @@ export default function AdminTemplatesPage() {
     fetchAllTemplates()
   }, [fetchAllTemplates])
 
+  const loadFeaturedCount = useCallback(async () => {
+    const count = await getFeaturedCount()
+    setFeaturedCount(count)
+  }, [getFeaturedCount])
+
   useEffect(() => {
     if (templates.length > 0) {
       const ids = templates.map(t => t.id)
       loadMarketplaceStats(ids)
       loadRatingStats(ids)
+      loadFeaturedCount()
     }
-  }, [templates, loadMarketplaceStats, loadRatingStats])
+  }, [templates, loadMarketplaceStats, loadRatingStats, loadFeaturedCount])
 
   const handleCreate = () => {
     setEditingTemplate(null)
@@ -508,6 +522,47 @@ export default function AdminTemplatesPage() {
     setModerationDialogOpen(true)
   }
 
+  const handleFeatureClick = (template: DefaultAgent) => {
+    if (template.is_featured) {
+      handleUnfeature(template)
+    } else {
+      setFeaturedTemplate(template)
+      setFeaturedUntil('')
+      setFeaturedDialogOpen(true)
+    }
+  }
+
+  const handleConfirmFeature = async () => {
+    if (!featuredTemplate) return
+    setFeaturingId(featuredTemplate.id)
+    try {
+      await setFeatured(
+        featuredTemplate.id,
+        featuredUntil || null
+      )
+      toast.success('Template featured')
+      setFeaturedDialogOpen(false)
+      loadFeaturedCount()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to feature template')
+    } finally {
+      setFeaturingId(null)
+    }
+  }
+
+  const handleUnfeature = async (template: DefaultAgent) => {
+    setFeaturingId(template.id)
+    try {
+      await unsetFeatured(template.id)
+      toast.success('Template unfeatured')
+      loadFeaturedCount()
+    } catch (err) {
+      toast.error('Failed to unfeature template')
+    } finally {
+      setFeaturingId(null)
+    }
+  }
+
   const handleRollback = async (template: DefaultAgent) => {
     if (!template.previous_version_id) {
       toast.error('No previous version available')
@@ -612,7 +667,15 @@ export default function AdminTemplatesPage() {
                             </TableCell>
                             <TableCell>
                               <div>
-                                <p className="font-medium">{template.name}</p>
+                                <div className="flex items-center gap-1.5">
+                                  <p className="font-medium">{template.name}</p>
+                                  {template.is_featured && (
+                                    <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/25 text-[10px] px-1 h-4">
+                                      <Award className="w-2.5 h-2.5 mr-0.5" />
+                                      Featured
+                                    </Badge>
+                                  )}
+                                </div>
                                 <p className="text-xs text-muted-foreground line-clamp-1 max-w-[200px]">
                                   {template.description}
                                 </p>
@@ -729,6 +792,20 @@ export default function AdminTemplatesPage() {
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className={`h-8 w-8 ${template.is_featured ? 'text-amber-500' : ''}`}
+                                  onClick={() => handleFeatureClick(template)}
+                                  disabled={featuringId === template.id}
+                                  title={template.is_featured ? 'Remove featured' : 'Feature template'}
+                                >
+                                  {featuringId === template.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Award className="w-4 h-4" />
+                                  )}
+                                </Button>
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -851,6 +928,62 @@ export default function AdminTemplatesPage() {
             templateName={moderationTemplate.name}
           />
         )}
+
+        <Dialog open={featuredDialogOpen} onOpenChange={setFeaturedDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Award className="w-5 h-5 text-amber-500" />
+                Feature Template
+              </DialogTitle>
+              <DialogDescription>
+                Feature &quot;{featuredTemplate?.name}&quot; for prominent display on the templates page.
+                {featuredCount >= 6 && !featuredTemplate?.is_featured && (
+                  <span className="text-destructive block mt-1">
+                    Maximum of 6 featured templates reached. Unfeature one first.
+                  </span>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
+                <p className="text-sm text-amber-700 dark:text-amber-400">
+                  Currently {featuredCount}/6 templates featured
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <CalendarDays className="w-4 h-4" />
+                  Expiration Date (optional)
+                </Label>
+                <Input
+                  type="datetime-local"
+                  value={featuredUntil}
+                  onChange={(e) => setFeaturedUntil(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Leave empty for no expiration. Featured status will be removed automatically after this date.
+                </p>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setFeaturedDialogOpen(false)}>
+                Cancel
+              </Button>
+              <LoadingButton
+                onClick={handleConfirmFeature}
+                loading={featuringId !== null}
+                disabled={featuredCount >= 6 && !featuredTemplate?.is_featured}
+              >
+                <Award className="w-4 h-4 mr-2" />
+                Feature Template
+              </LoadingButton>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
           <DialogContent className="sm:max-w-lg">

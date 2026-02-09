@@ -9,7 +9,7 @@ import {
   FileText, Shield, Layout, Kanban, Brain, Cpu, Server,
   GraduationCap, Target, Globe, FlaskConical, History,
   GitMerge, BarChart3, Sparkles, ChevronLeft, Rocket,
-  ArrowUpDown, TrendingDown, Star, Users
+  ArrowUpDown, TrendingDown, Star, Users, Award
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -63,22 +63,21 @@ const categoryColors: Record<string, string> = {
 
 type SortOption = 'default' | 'popular' | 'highest_rated' | 'newest' | 'name'
 
-interface TemplateWithStats extends DefaultAgent {
-  average_rating?: number
-  review_count?: number
-  clone_count?: number
-}
+type TemplateWithStats = DefaultAgent
 
 function TemplateCard({
   template,
   onSelect,
+  showFeaturedBadge = false,
 }: {
   template: TemplateWithStats
   onSelect: (template: TemplateWithStats) => void
+  showFeaturedBadge?: boolean
 }) {
   const IconComponent = iconMap[template.icon] || Bot
   const rating = Number(template.average_rating) || 0
   const reviewCount = template.review_count || 0
+  const isFeatured = showFeaturedBadge && template.is_featured
 
   return (
     <motion.div
@@ -89,16 +88,29 @@ function TemplateCard({
       transition={{ duration: 0.2 }}
     >
       <Card
-        className="h-full cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all duration-200 group"
+        className={`h-full cursor-pointer hover:shadow-lg transition-all duration-200 group ${
+          isFeatured
+            ? 'border-amber-500/40 hover:border-amber-500/60 bg-gradient-to-b from-amber-500/[0.03] to-transparent'
+            : 'hover:border-primary/50'
+        }`}
         onClick={() => onSelect(template)}
       >
         <CardHeader className="pb-3">
           <div className="flex items-start gap-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center shrink-0 group-hover:from-primary/30 group-hover:to-primary/10 transition-colors">
-              <IconComponent className="w-6 h-6 text-primary" />
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+              isFeatured
+                ? 'bg-gradient-to-br from-amber-500/20 to-amber-500/5 group-hover:from-amber-500/30 group-hover:to-amber-500/10'
+                : 'bg-gradient-to-br from-primary/20 to-primary/5 group-hover:from-primary/30 group-hover:to-primary/10'
+            }`}>
+              <IconComponent className={`w-6 h-6 ${isFeatured ? 'text-amber-600' : 'text-primary'}`} />
             </div>
             <div className="flex-1 min-w-0">
-              <CardTitle className="text-base line-clamp-1">{template.name}</CardTitle>
+              <div className="flex items-center gap-1.5">
+                <CardTitle className="text-base line-clamp-1">{template.name}</CardTitle>
+                {isFeatured && (
+                  <Award className="w-4 h-4 text-amber-500 shrink-0" />
+                )}
+              </div>
               <div className="flex items-center gap-2 mt-1">
                 <Badge
                   variant="outline"
@@ -310,7 +322,8 @@ function TemplatePreviewDialog({
 export default function AgentTemplatesPage() {
   const router = useRouter()
   const { isDemo } = useStore()
-  const { templates, loading, error, fetchTemplates, cloneTemplate } = useDefaultAgents()
+  const { templates, loading, error, fetchTemplates, fetchFeaturedTemplates, cloneTemplate } = useDefaultAgents()
+  const [featuredTemplates, setFeaturedTemplates] = useState<DefaultAgent[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [sortBy, setSortBy] = useState<SortOption>('default')
@@ -322,7 +335,8 @@ export default function AgentTemplatesPage() {
 
   useEffect(() => {
     fetchTemplates()
-  }, [fetchTemplates])
+    fetchFeaturedTemplates().then(setFeaturedTemplates)
+  }, [fetchTemplates, fetchFeaturedTemplates])
 
   const handleCategoryChange = useCallback((category: string) => {
     setSelectedCategory(category)
@@ -477,6 +491,25 @@ export default function AgentTemplatesPage() {
             </Tabs>
           </div>
         </div>
+
+        {featuredTemplates.length > 0 && !searchQuery && selectedCategory === 'all' && (
+          <div className="mb-8">
+            <div className="flex items-center gap-2 mb-4">
+              <Award className="w-5 h-5 text-amber-500" />
+              <h2 className="text-lg font-semibold">Featured Templates</h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {featuredTemplates.map((template) => (
+                <TemplateCard
+                  key={`featured-${template.id}`}
+                  template={template as TemplateWithStats}
+                  onSelect={handleSelectTemplate}
+                  showFeaturedBadge
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         {loading && templates.length === 0 ? (
           <div className="flex items-center justify-center py-20">
