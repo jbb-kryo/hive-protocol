@@ -662,10 +662,19 @@ export default function AdminTemplatesPage() {
               </p>
             </div>
           </div>
-          <Button onClick={handleCreate}>
-            <Plus className="w-4 h-4 mr-2" />
-            New Template
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => router.push('/admin/templates/analytics')}
+            >
+              <BarChart3 className="w-4 h-4 mr-2" />
+              Analytics
+            </Button>
+            <Button onClick={handleCreate}>
+              <Plus className="w-4 h-4 mr-2" />
+              New Template
+            </Button>
+          </div>
         </div>
 
         <Card>
