@@ -98,13 +98,13 @@ ALTER TABLE agents ADD COLUMN IF NOT EXISTS source_template_version text;
 ```
 
 **Acceptance Criteria:**
-- [ ] Templates display version number
-- [ ] Version history accessible in admin panel
-- [ ] Changelog field for documenting changes
-- [ ] Cloned agents track source template and version
-- [ ] Users can see if newer version available
-- [ ] Upgrade preserves user customizations where possible
-- [ ] Rollback to previous version available for admins
+- [X] Templates display version number
+- [X] Version history accessible in admin panel
+- [X] Changelog field for documenting changes
+- [X] Cloned agents track source template and version
+- [X] Users can see if newer version available
+- [X] Upgrade preserves user customizations where possible
+- [X] Rollback to previous version available for admins
 
 ---
 
