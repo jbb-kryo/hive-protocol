@@ -29,6 +29,7 @@ import { TemplateReviewDialog } from '@/components/agents/template-review-dialog
 import { TemplateReviewsList } from '@/components/agents/template-reviews-list'
 import { useDefaultAgents, type DefaultAgent } from '@/hooks/use-default-agents'
 import { useTemplateReviews } from '@/hooks/use-template-reviews'
+import { TeamTemplatesSection } from '@/components/agents/team-templates-section'
 import { useStore } from '@/store'
 import { toast } from 'sonner'
 
@@ -511,6 +512,10 @@ export default function AgentTemplatesPage() {
           </div>
         )}
 
+        {!searchQuery && selectedCategory === 'all' && (
+          <TeamTemplatesSection onCloneSuccess={() => router.push('/agents')} />
+        )}
+
         {loading && templates.length === 0 ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -548,16 +553,24 @@ export default function AgentTemplatesPage() {
             />
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            <AnimatePresence mode="popLayout">
-              {sortedAndFilteredTemplates.map((template) => (
-                <TemplateCard
-                  key={template.id}
-                  template={template}
-                  onSelect={handleSelectTemplate}
-                />
-              ))}
-            </AnimatePresence>
+          <div>
+            {!searchQuery && selectedCategory === 'all' && (
+              <div className="flex items-center gap-2 mb-4">
+                <Sparkles className="w-5 h-5 text-primary" />
+                <h2 className="text-lg font-semibold">Public Templates</h2>
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              <AnimatePresence mode="popLayout">
+                {sortedAndFilteredTemplates.map((template) => (
+                  <TemplateCard
+                    key={template.id}
+                    template={template}
+                    onSelect={handleSelectTemplate}
+                  />
+                ))}
+              </AnimatePresence>
+            </div>
           </div>
         )}
 
