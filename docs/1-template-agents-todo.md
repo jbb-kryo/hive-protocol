@@ -286,13 +286,13 @@ Implement an approval workflow for templates, allowing team admins to review and
 5. Audit log of approval actions
 
 **Acceptance Criteria:**
-- [ ] Templates start in "draft" status
-- [ ] "Submit for Review" action available
-- [ ] Admin review queue shows pending templates
-- [ ] Approve/reject with optional feedback
-- [ ] Creator notified of status changes
-- [ ] Only approved templates visible to users
-- [ ] Approval history maintained
+- [X] Templates start in "draft" status
+- [X] "Submit for Review" action available
+- [X] Admin review queue shows pending templates
+- [X] Approve/reject with optional feedback
+- [X] Creator notified of status changes
+- [X] Only approved templates visible to users
+- [X] Approval history maintained
 
 ---
 
