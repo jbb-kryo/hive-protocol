@@ -8,7 +8,7 @@ import {
   FileText, Shield, Layout, Kanban, Brain, Cpu, Server, Search, Loader2,
   GraduationCap, Target, Globe, FlaskConical, History, GitMerge, BarChart3,
   ChevronLeft, Sparkles, Tag, RotateCcw, ArrowUpCircle, Rocket,
-  Store, Download, Eye, Star
+  Store, Download, Eye, Star, MessageSquare
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -28,7 +28,10 @@ import { LoadingButton } from '@/components/ui/loading-button'
 import { useDefaultAgents, type DefaultAgent, type CreateTemplateData } from '@/hooks/use-default-agents'
 import { BatchDeployDialog } from '@/components/agents/batch-deploy-dialog'
 import { PromoteToMarketplaceDialog } from '@/components/agents/promote-to-marketplace-dialog'
+import { TemplateReviewsModerationDialog } from '@/components/agents/template-reviews-moderation-dialog'
+import { StarRating } from '@/components/agents/star-rating'
 import { useMarketplaceActions } from '@/hooks/use-marketplace'
+import { useTemplateReviewActions, type TemplateRatingStats } from '@/hooks/use-template-reviews'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 
@@ -346,6 +349,7 @@ export default function AdminTemplatesPage() {
     rollbackTemplate,
   } = useDefaultAgents()
   const { getTemplateMarketplaceStats } = useMarketplaceActions()
+  const { getRatingStatsForTemplates } = useTemplateReviewActions()
 
   const [formOpen, setFormOpen] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<DefaultAgent | null>(null)
@@ -363,7 +367,10 @@ export default function AdminTemplatesPage() {
   const [deployTemplate, setDeployTemplate] = useState<DefaultAgent | null>(null)
   const [promoteDialogOpen, setPromoteDialogOpen] = useState(false)
   const [promoteTemplate, setPromoteTemplate] = useState<DefaultAgent | null>(null)
+  const [moderationDialogOpen, setModerationDialogOpen] = useState(false)
+  const [moderationTemplate, setModerationTemplate] = useState<DefaultAgent | null>(null)
   const [marketplaceStats, setMarketplaceStats] = useState<Record<string, TemplateMarketplaceStats>>({})
+  const [ratingStats, setRatingStats] = useState<Record<string, TemplateRatingStats>>({})
 
   const loadMarketplaceStats = useCallback(async (templateIds: string[]) => {
     if (templateIds.length === 0) return
@@ -371,15 +378,23 @@ export default function AdminTemplatesPage() {
     setMarketplaceStats(stats)
   }, [getTemplateMarketplaceStats])
 
+  const loadRatingStats = useCallback(async (templateIds: string[]) => {
+    if (templateIds.length === 0) return
+    const stats = await getRatingStatsForTemplates(templateIds)
+    setRatingStats(stats)
+  }, [getRatingStatsForTemplates])
+
   useEffect(() => {
     fetchAllTemplates()
   }, [fetchAllTemplates])
 
   useEffect(() => {
     if (templates.length > 0) {
-      loadMarketplaceStats(templates.map(t => t.id))
+      const ids = templates.map(t => t.id)
+      loadMarketplaceStats(ids)
+      loadRatingStats(ids)
     }
-  }, [templates, loadMarketplaceStats])
+  }, [templates, loadMarketplaceStats, loadRatingStats])
 
   const handleCreate = () => {
     setEditingTemplate(null)
@@ -488,6 +503,11 @@ export default function AdminTemplatesPage() {
     setPromoteDialogOpen(true)
   }
 
+  const handleModeration = (template: DefaultAgent) => {
+    setModerationTemplate(template)
+    setModerationDialogOpen(true)
+  }
+
   const handleRollback = async (template: DefaultAgent) => {
     if (!template.previous_version_id) {
       toast.error('No previous version available')
@@ -566,6 +586,7 @@ export default function AdminTemplatesPage() {
                       <TableHead>Name</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead>Version</TableHead>
+                      <TableHead>Rating</TableHead>
                       <TableHead>Marketplace</TableHead>
                       <TableHead>Tags</TableHead>
                       <TableHead className="w-[100px] text-center">Status</TableHead>
@@ -619,6 +640,23 @@ export default function AdminTemplatesPage() {
                                   </Button>
                                 )}
                               </div>
+                            </TableCell>
+                            <TableCell>
+                              {ratingStats[template.id] && ratingStats[template.id].reviewCount > 0 ? (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleModeration(template) }}
+                                  className="flex items-center gap-1 hover:opacity-80 transition-opacity"
+                                >
+                                  <StarRating
+                                    rating={ratingStats[template.id].averageRating}
+                                    size="xs"
+                                    showValue
+                                    count={ratingStats[template.id].reviewCount}
+                                  />
+                                </button>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">--</span>
+                              )}
                             </TableCell>
                             <TableCell>
                               {marketplaceStats[template.id] ? (
@@ -699,6 +737,15 @@ export default function AdminTemplatesPage() {
                                   title={marketplaceStats[template.id] ? 'Manage marketplace listing' : 'Promote to marketplace'}
                                 >
                                   <Store className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleModeration(template)}
+                                  title="Moderate reviews"
+                                >
+                                  <MessageSquare className="w-4 h-4" />
                                 </Button>
                                 <Button
                                   variant="ghost"
@@ -795,6 +842,15 @@ export default function AdminTemplatesPage() {
           template={promoteTemplate}
           onPromoted={() => loadMarketplaceStats(templates.map(t => t.id))}
         />
+
+        {moderationTemplate && (
+          <TemplateReviewsModerationDialog
+            open={moderationDialogOpen}
+            onOpenChange={setModerationDialogOpen}
+            templateId={moderationTemplate.id}
+            templateName={moderationTemplate.name}
+          />
+        )}
 
         <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
           <DialogContent className="sm:max-w-lg">

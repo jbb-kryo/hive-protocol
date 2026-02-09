@@ -1,53 +1,41 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Bot, Search, Filter, ArrowRight, Check, Loader2,
+  Bot, Search, ArrowRight, Check, Loader2,
   Code, PenTool, BarChart, Headphones, TrendingUp,
   FileText, Shield, Layout, Kanban, Brain, Cpu, Server,
   GraduationCap, Target, Globe, FlaskConical, History,
-  GitMerge, BarChart3, Sparkles, ChevronLeft, Rocket
+  GitMerge, BarChart3, Sparkles, ChevronLeft, Rocket,
+  ArrowUpDown, TrendingDown, Star, Users
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { EmptyState } from '@/components/ui/empty-state'
 import { PageTransition } from '@/components/ui/page-transition'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { DemoBanner } from '@/components/dashboard/demo-banner'
 import { BatchDeployDialog } from '@/components/agents/batch-deploy-dialog'
+import { StarRating } from '@/components/agents/star-rating'
+import { TemplateReviewDialog } from '@/components/agents/template-review-dialog'
+import { TemplateReviewsList } from '@/components/agents/template-reviews-list'
 import { useDefaultAgents, type DefaultAgent } from '@/hooks/use-default-agents'
+import { useTemplateReviews } from '@/hooks/use-template-reviews'
 import { useStore } from '@/store'
 import { toast } from 'sonner'
 
 const iconMap: Record<string, React.ElementType> = {
-  Bot,
-  Search,
-  Code,
-  PenTool,
-  BarChart,
-  BarChart3,
-  Headphones,
-  TrendingUp,
-  FileText,
-  Shield,
-  Layout,
-  Kanban,
-  Brain,
-  Cpu,
-  Server,
-  GraduationCap,
-  Target,
-  Globe,
-  FlaskConical,
-  History,
-  GitMerge,
+  Bot, Search, Code, PenTool, BarChart, BarChart3, Headphones, TrendingUp,
+  FileText, Shield, Layout, Kanban, Brain, Cpu, Server,
+  GraduationCap, Target, Globe, FlaskConical, History, GitMerge,
 }
 
 const categoryLabels: Record<string, string> = {
@@ -73,14 +61,24 @@ const categoryColors: Record<string, string> = {
   general: 'bg-slate-500/10 text-slate-600 border-slate-500/20',
 }
 
+type SortOption = 'default' | 'popular' | 'highest_rated' | 'newest' | 'name'
+
+interface TemplateWithStats extends DefaultAgent {
+  average_rating?: number
+  review_count?: number
+  clone_count?: number
+}
+
 function TemplateCard({
   template,
   onSelect,
 }: {
-  template: DefaultAgent
-  onSelect: (template: DefaultAgent) => void
+  template: TemplateWithStats
+  onSelect: (template: TemplateWithStats) => void
 }) {
   const IconComponent = iconMap[template.icon] || Bot
+  const rating = Number(template.average_rating) || 0
+  const reviewCount = template.review_count || 0
 
   return (
     <motion.div
@@ -101,12 +99,14 @@ function TemplateCard({
             </div>
             <div className="flex-1 min-w-0">
               <CardTitle className="text-base line-clamp-1">{template.name}</CardTitle>
-              <Badge
-                variant="outline"
-                className={`mt-1 text-xs ${categoryColors[template.category] || categoryColors.general}`}
-              >
-                {categoryLabels[template.category] || template.category}
-              </Badge>
+              <div className="flex items-center gap-2 mt-1">
+                <Badge
+                  variant="outline"
+                  className={`text-xs ${categoryColors[template.category] || categoryColors.general}`}
+                >
+                  {categoryLabels[template.category] || template.category}
+                </Badge>
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -128,13 +128,14 @@ function TemplateCard({
           </div>
           <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">{template.framework}</span>
-              <Badge variant="outline" className="text-[10px] font-mono">
-                v{template.version || '1.0.0'}
-              </Badge>
+              {reviewCount > 0 ? (
+                <StarRating rating={rating} size="xs" showValue count={reviewCount} />
+              ) : (
+                <span className="text-xs text-muted-foreground">No reviews</span>
+              )}
             </div>
             <Button variant="ghost" size="sm" className="h-7 gap-1 group-hover:bg-primary group-hover:text-primary-foreground">
-              Use Template
+              Use
               <ArrowRight className="w-3 h-3" />
             </Button>
           </div>
@@ -152,97 +153,157 @@ function TemplatePreviewDialog({
   onBatchDeploy,
   loading,
 }: {
-  template: DefaultAgent | null
+  template: TemplateWithStats | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onUse: () => void
   onBatchDeploy: () => void
   loading: boolean
 }) {
+  const [activeTab, setActiveTab] = useState('details')
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false)
+  const {
+    reviews,
+    loading: reviewsLoading,
+    userReview,
+    refetch: refetchReviews,
+    refetchUserReview,
+  } = useTemplateReviews(open && template ? template.id : null)
+
   if (!template) return null
 
   const IconComponent = iconMap[template.icon] || Bot
+  const rating = Number(template.average_rating) || 0
+  const reviewCount = template.review_count || 0
+
+  const handleReviewSubmitted = () => {
+    refetchReviews()
+    refetchUserReview()
+  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
-              <IconComponent className="w-6 h-6 text-primary" />
-            </div>
-            <div>
-              <DialogTitle>{template.name}</DialogTitle>
-              <Badge
-                variant="outline"
-                className={`mt-1 ${categoryColors[template.category] || categoryColors.general}`}
-              >
-                {categoryLabels[template.category] || template.category}
-              </Badge>
-            </div>
-          </div>
-          <DialogDescription>{template.description}</DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div>
-            <h4 className="text-sm font-medium mb-2">Configuration</h4>
-            <div className="grid grid-cols-3 gap-3 text-sm">
-              <div className="bg-muted/50 rounded-lg p-3">
-                <span className="text-muted-foreground block text-xs mb-1">Framework</span>
-                <span className="font-medium">{template.framework}</span>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-xl max-h-[85vh] flex flex-col overflow-hidden">
+          <DialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                <IconComponent className="w-6 h-6 text-primary" />
               </div>
-              <div className="bg-muted/50 rounded-lg p-3">
-                <span className="text-muted-foreground block text-xs mb-1">Role</span>
-                <span className="font-medium">{template.role || 'General'}</span>
-              </div>
-              <div className="bg-muted/50 rounded-lg p-3">
-                <span className="text-muted-foreground block text-xs mb-1">Version</span>
-                <span className="font-medium font-mono">v{template.version || '1.0.0'}</span>
-              </div>
-            </div>
-          </div>
-
-          {template.system_prompt && (
-            <div>
-              <h4 className="text-sm font-medium mb-2">System Prompt</h4>
-              <ScrollArea className="h-32 rounded-lg border border-border bg-muted/30 p-3">
-                <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                  {template.system_prompt}
-                </p>
-              </ScrollArea>
-            </div>
-          )}
-
-          {template.tags.length > 0 && (
-            <div>
-              <h4 className="text-sm font-medium mb-2">Tags</h4>
-              <div className="flex flex-wrap gap-1.5">
-                {template.tags.map((tag) => (
-                  <Badge key={tag} variant="secondary" className="text-xs">
-                    {tag}
+              <div>
+                <DialogTitle>{template.name}</DialogTitle>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge
+                    variant="outline"
+                    className={categoryColors[template.category] || categoryColors.general}
+                  >
+                    {categoryLabels[template.category] || template.category}
                   </Badge>
-                ))}
+                  {reviewCount > 0 && (
+                    <StarRating rating={rating} size="xs" showValue count={reviewCount} />
+                  )}
+                </div>
               </div>
             </div>
-          )}
-        </div>
+            <DialogDescription>{template.description}</DialogDescription>
+          </DialogHeader>
 
-        <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button variant="secondary" onClick={onBatchDeploy}>
-            <Rocket className="w-4 h-4 mr-2" />
-            Deploy to Swarms
-          </Button>
-          <LoadingButton onClick={onUse} loading={loading}>
-            <Check className="w-4 h-4 mr-2" />
-            Use This Template
-          </LoadingButton>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 overflow-hidden flex flex-col">
+            <TabsList className="grid grid-cols-2 w-full shrink-0">
+              <TabsTrigger value="details">Details</TabsTrigger>
+              <TabsTrigger value="reviews" className="gap-1.5">
+                Reviews
+                {reviewCount > 0 && (
+                  <Badge variant="secondary" className="text-[10px] h-4 px-1 ml-1">
+                    {reviewCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="details" className="flex-1 overflow-y-auto mt-4">
+              <div className="space-y-4 pr-1">
+                <div>
+                  <h4 className="text-sm font-medium mb-2">Configuration</h4>
+                  <div className="grid grid-cols-3 gap-3 text-sm">
+                    <div className="bg-muted/50 rounded-lg p-3">
+                      <span className="text-muted-foreground block text-xs mb-1">Framework</span>
+                      <span className="font-medium">{template.framework}</span>
+                    </div>
+                    <div className="bg-muted/50 rounded-lg p-3">
+                      <span className="text-muted-foreground block text-xs mb-1">Role</span>
+                      <span className="font-medium">{template.role || 'General'}</span>
+                    </div>
+                    <div className="bg-muted/50 rounded-lg p-3">
+                      <span className="text-muted-foreground block text-xs mb-1">Version</span>
+                      <span className="font-medium font-mono">v{template.version || '1.0.0'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {template.system_prompt && (
+                  <div>
+                    <h4 className="text-sm font-medium mb-2">System Prompt</h4>
+                    <ScrollArea className="h-32 rounded-lg border border-border bg-muted/30 p-3">
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                        {template.system_prompt}
+                      </p>
+                    </ScrollArea>
+                  </div>
+                )}
+
+                {template.tags.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium mb-2">Tags</h4>
+                    <div className="flex flex-wrap gap-1.5">
+                      {template.tags.map((tag) => (
+                        <Badge key={tag} variant="secondary" className="text-xs">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="reviews" className="flex-1 overflow-y-auto mt-4">
+              <TemplateReviewsList
+                reviews={reviews}
+                loading={reviewsLoading}
+                userReview={userReview}
+                onWriteReview={() => setReviewDialogOpen(true)}
+                onEditReview={() => setReviewDialogOpen(true)}
+                onRefresh={refetchReviews}
+              />
+            </TabsContent>
+          </Tabs>
+
+          <DialogFooter className="mt-4 shrink-0">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button variant="secondary" onClick={onBatchDeploy}>
+              <Rocket className="w-4 h-4 mr-2" />
+              Deploy to Swarms
+            </Button>
+            <LoadingButton onClick={onUse} loading={loading}>
+              <Check className="w-4 h-4 mr-2" />
+              Use This Template
+            </LoadingButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <TemplateReviewDialog
+        open={reviewDialogOpen}
+        onOpenChange={setReviewDialogOpen}
+        templateId={template.id}
+        templateName={template.name}
+        existingReview={userReview}
+        onSubmitted={handleReviewSubmitted}
+      />
+    </>
   )
 }
 
@@ -252,7 +313,8 @@ export default function AgentTemplatesPage() {
   const { templates, loading, error, fetchTemplates, cloneTemplate } = useDefaultAgents()
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('all')
-  const [selectedTemplate, setSelectedTemplate] = useState<DefaultAgent | null>(null)
+  const [sortBy, setSortBy] = useState<SortOption>('default')
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateWithStats | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [cloning, setCloning] = useState(false)
   const [deployDialogOpen, setDeployDialogOpen] = useState(false)
@@ -271,18 +333,44 @@ export default function AgentTemplatesPage() {
     }
   }, [fetchTemplates])
 
-  const filteredTemplates = templates.filter((template) => {
-    if (!searchQuery) return true
-    const query = searchQuery.toLowerCase()
-    return (
-      template.name.toLowerCase().includes(query) ||
-      template.description?.toLowerCase().includes(query) ||
-      template.tags.some((tag) => tag.toLowerCase().includes(query)) ||
-      template.role?.toLowerCase().includes(query)
-    )
-  })
+  const sortedAndFilteredTemplates = useMemo(() => {
+    let result = [...templates] as TemplateWithStats[]
 
-  const handleSelectTemplate = (template: DefaultAgent) => {
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase()
+      result = result.filter((t) =>
+        t.name.toLowerCase().includes(query) ||
+        t.description?.toLowerCase().includes(query) ||
+        t.tags.some((tag) => tag.toLowerCase().includes(query)) ||
+        t.role?.toLowerCase().includes(query)
+      )
+    }
+
+    switch (sortBy) {
+      case 'popular':
+        result.sort((a, b) => (b.clone_count || 0) - (a.clone_count || 0))
+        break
+      case 'highest_rated':
+        result.sort((a, b) => {
+          const ratingDiff = (Number(b.average_rating) || 0) - (Number(a.average_rating) || 0)
+          if (ratingDiff !== 0) return ratingDiff
+          return (b.review_count || 0) - (a.review_count || 0)
+        })
+        break
+      case 'newest':
+        result.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        break
+      case 'name':
+        result.sort((a, b) => a.name.localeCompare(b.name))
+        break
+      default:
+        break
+    }
+
+    return result
+  }, [templates, searchQuery, sortBy])
+
+  const handleSelectTemplate = (template: TemplateWithStats) => {
     setSelectedTemplate(template)
     setPreviewOpen(true)
   }
@@ -358,6 +446,22 @@ export default function AgentTemplatesPage() {
                 className="pl-9"
               />
             </div>
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+              <SelectTrigger className="w-[180px]">
+                <ArrowUpDown className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Default Order</SelectItem>
+                <SelectItem value="popular">Most Popular</SelectItem>
+                <SelectItem value="highest_rated">Highest Rated</SelectItem>
+                <SelectItem value="newest">Newest First</SelectItem>
+                <SelectItem value="name">Name (A-Z)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="mt-4">
             <Tabs
               value={selectedCategory}
               onValueChange={handleCategoryChange}
@@ -390,7 +494,7 @@ export default function AgentTemplatesPage() {
               }}
             />
           </div>
-        ) : filteredTemplates.length === 0 ? (
+        ) : sortedAndFilteredTemplates.length === 0 ? (
           <div className="flex items-center justify-center py-20">
             <EmptyState
               icon={Search}
@@ -413,7 +517,7 @@ export default function AgentTemplatesPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             <AnimatePresence mode="popLayout">
-              {filteredTemplates.map((template) => (
+              {sortedAndFilteredTemplates.map((template) => (
                 <TemplateCard
                   key={template.id}
                   template={template}
