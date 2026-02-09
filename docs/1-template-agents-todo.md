@@ -155,12 +155,12 @@ Bridge the gap between the internal template system (default_agents) and the pub
 5. Handle free templates vs paid marketplace agents
 
 **Acceptance Criteria:**
-- [ ] Admin templates can be promoted to marketplace
-- [ ] Marketplace listings sync with template updates
-- [ ] Template cards show install count from marketplace
-- [ ] Users can install from either templates page or marketplace
-- [ ] Clear distinction between free templates and paid agents
-- [ ] Revenue tracking for paid template-based agents
+- [X] Admin templates can be promoted to marketplace
+- [X] Marketplace listings sync with template updates
+- [X] Template cards show install count from marketplace
+- [X] Users can install from either templates page or marketplace
+- [X] Clear distinction between free templates and paid agents
+- [X] Revenue tracking for paid template-based agents
 
 ---
 
