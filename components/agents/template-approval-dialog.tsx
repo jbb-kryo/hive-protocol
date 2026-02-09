@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { format } from 'date-fns'
 import {
   Bot, CheckCircle2, XCircle, MessageSquare, Clock,
-  FileEdit, Send, History, ChevronRight
+  FileEdit, Send, History, ChevronRight, FlaskConical
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -95,6 +95,7 @@ export function TemplateApprovalDialog({
   onReject,
   onRequestChanges,
   onSubmitForReview,
+  onTest,
   actionLoading,
 }: {
   template: TeamTemplate | null
@@ -107,6 +108,7 @@ export function TemplateApprovalDialog({
   onReject: (feedback: string) => Promise<void>
   onRequestChanges: (feedback: string) => Promise<void>
   onSubmitForReview: () => Promise<void>
+  onTest?: (template: TeamTemplate) => void
   actionLoading: boolean
 }) {
   const [feedback, setFeedback] = useState('')
@@ -239,6 +241,21 @@ export function TemplateApprovalDialog({
               <ApprovalTimeline history={history} />
             )}
           </div>
+
+          {onTest && template && (
+            <>
+              <Separator />
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full border-amber-500/30 text-amber-600 hover:bg-amber-500/10"
+                onClick={() => onTest(template)}
+              >
+                <FlaskConical className="w-3.5 h-3.5 mr-1.5" />
+                Test Template in Sandbox
+              </Button>
+            </>
+          )}
 
           {(canReview || canSubmit) && (
             <>

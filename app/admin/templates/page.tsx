@@ -31,8 +31,10 @@ import { PromoteToMarketplaceDialog } from '@/components/agents/promote-to-marke
 import { TemplateReviewsModerationDialog } from '@/components/agents/template-reviews-moderation-dialog'
 import { TemplateReviewQueue } from '@/components/agents/template-review-queue'
 import { StarRating } from '@/components/agents/star-rating'
+import { TemplateSandboxDialog } from '@/components/agents/template-sandbox-dialog'
 import { useMarketplaceActions } from '@/hooks/use-marketplace'
 import { useTemplateReviewActions, type TemplateRatingStats } from '@/hooks/use-template-reviews'
+import type { SandboxConfig } from '@/hooks/use-template-sandbox'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 
@@ -380,6 +382,9 @@ export default function AdminTemplatesPage() {
   const [featuredCount, setFeaturedCount] = useState(0)
   const [marketplaceStats, setMarketplaceStats] = useState<Record<string, TemplateMarketplaceStats>>({})
   const [ratingStats, setRatingStats] = useState<Record<string, TemplateRatingStats>>({})
+  const [sandboxOpen, setSandboxOpen] = useState(false)
+  const [sandboxConfig, setSandboxConfig] = useState<SandboxConfig | null>(null)
+  const [sandboxCompareConfig, setSandboxCompareConfig] = useState<SandboxConfig | null>(null)
 
   const loadMarketplaceStats = useCallback(async (templateIds: string[]) => {
     if (templateIds.length === 0) return
@@ -562,6 +567,58 @@ export default function AdminTemplatesPage() {
     } finally {
       setFeaturingId(null)
     }
+  }
+
+  const handleTestTemplate = (template: DefaultAgent) => {
+    setSandboxConfig({
+      name: template.name,
+      system_prompt: template.system_prompt,
+      framework: template.framework,
+      role: template.role,
+      default_agent_id: template.id,
+      template_version: template.version || '1.0.0',
+      resolved_config: {
+        name: template.name,
+        system_prompt: template.system_prompt,
+        framework: template.framework,
+        role: template.role,
+        category: template.category,
+        tags: template.tags,
+      },
+    })
+    setSandboxCompareConfig(null)
+    setSandboxOpen(true)
+  }
+
+  const handleTestCompare = async (template: DefaultAgent) => {
+    const current: SandboxConfig = {
+      name: `${template.name} (v${template.version || '1.0.0'})`,
+      system_prompt: template.system_prompt,
+      framework: template.framework,
+      role: template.role,
+      default_agent_id: template.id,
+      template_version: template.version || '1.0.0',
+    }
+
+    let previous: SandboxConfig | null = null
+    if (template.previous_version_id) {
+      const history = await getVersionHistory(template.id)
+      if (history.length > 1) {
+        const prev = history[1]
+        previous = {
+          name: `${prev.name} (v${prev.version || 'prev'})`,
+          system_prompt: prev.system_prompt,
+          framework: prev.framework,
+          role: prev.role,
+          default_agent_id: prev.id,
+          template_version: prev.version || 'previous',
+        }
+      }
+    }
+
+    setSandboxConfig(current)
+    setSandboxCompareConfig(previous)
+    setSandboxOpen(true)
   }
 
   const handleRollback = async (template: DefaultAgent) => {
@@ -837,6 +894,15 @@ export default function AdminTemplatesPage() {
                                 <Button
                                   variant="ghost"
                                   size="icon"
+                                  className="h-8 w-8 text-amber-600 hover:text-amber-700"
+                                  onClick={() => handleTestTemplate(template)}
+                                  title="Test template"
+                                >
+                                  <FlaskConical className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
                                   className="h-8 w-8"
                                   onClick={() => handleEdit(template)}
                                   title="Edit template"
@@ -1062,6 +1128,13 @@ export default function AdminTemplatesPage() {
         </Dialog>
 
         <TemplateReviewQueue />
+
+        <TemplateSandboxDialog
+          open={sandboxOpen}
+          onOpenChange={setSandboxOpen}
+          config={sandboxConfig}
+          compareConfig={sandboxCompareConfig}
+        />
       </div>
     </PageTransition>
   )

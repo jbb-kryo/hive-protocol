@@ -29,7 +29,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { TeamTemplateFormDialog, teamTemplateIconMap, type TeamTemplateFormData } from '@/components/agents/team-template-form-dialog'
 import { TemplateApprovalDialog, statusConfig } from '@/components/agents/template-approval-dialog'
 import { CloneWithParametersDialog } from '@/components/agents/clone-with-parameters-dialog'
+import { TemplateSandboxDialog } from '@/components/agents/template-sandbox-dialog'
 import { getParametersFromSettings } from '@/lib/template-parameters'
+import type { SandboxConfig } from '@/hooks/use-template-sandbox'
 import {
   useTeamTemplates,
   type TeamTemplate,
@@ -419,6 +421,8 @@ export function TeamTemplatesSection({
   const [approvalHistory, setApprovalHistory] = useState<ApprovalHistoryEntry[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
+  const [sandboxOpen, setSandboxOpen] = useState(false)
+  const [sandboxConfig, setSandboxConfig] = useState<SandboxConfig | null>(null)
 
   useEffect(() => {
     if (currentOrganization) {
@@ -666,6 +670,25 @@ export function TeamTemplatesSection({
     }
   }
 
+  const handleTestTemplate = useCallback((template: TeamTemplate) => {
+    setSandboxConfig({
+      name: template.name,
+      system_prompt: template.system_prompt,
+      framework: template.framework,
+      role: template.role,
+      template_id: template.id,
+      resolved_config: {
+        name: template.name,
+        system_prompt: template.system_prompt,
+        framework: template.framework,
+        role: template.role,
+        category: template.category,
+        tags: template.tags,
+      },
+    })
+    setSandboxOpen(true)
+  }, [])
+
   if (orgsLoading) return null
   if (organizations.length === 0) return null
 
@@ -846,7 +869,14 @@ export function TeamTemplatesSection({
         onReject={handleReject}
         onRequestChanges={handleRequestChanges}
         onSubmitForReview={handleApprovalSubmitForReview}
+        onTest={handleTestTemplate}
         actionLoading={actionLoading}
+      />
+
+      <TemplateSandboxDialog
+        open={sandboxOpen}
+        onOpenChange={setSandboxOpen}
+        config={sandboxConfig}
       />
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
