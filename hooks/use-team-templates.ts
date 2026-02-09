@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useStore } from '@/store'
 import { sanitizeAgentName, sanitizeAgentPrompt, sanitizeText } from '@/lib/sanitize'
+import { getParametersFromSettings, substituteVariables } from '@/lib/template-parameters'
 
 export type TemplateStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'changes_requested'
 
@@ -394,7 +395,23 @@ export function useTeamTemplates(organizationId: string | null) {
     return (data || []) as ApprovalHistoryEntry[]
   }, [])
 
-  const cloneToAgent = useCallback(async (template: TeamTemplate) => {
+  const cloneToAgent = useCallback(async (
+    template: TeamTemplate,
+    parameterValues?: Record<string, string | number | boolean>,
+  ) => {
+    let systemPrompt = template.system_prompt
+    if (parameterValues && systemPrompt) {
+      systemPrompt = substituteVariables(systemPrompt, parameterValues)
+    }
+
+    const agentSettings: Record<string, unknown> = {
+      ...(template.settings || {}),
+    }
+    if (parameterValues && Object.keys(parameterValues).length > 0) {
+      agentSettings.template_id = template.id
+      agentSettings.parameter_values = parameterValues
+    }
+
     if (isDemo) {
       const newAgent = {
         id: `demo_agent_${Date.now()}`,
@@ -403,8 +420,8 @@ export function useTeamTemplates(organizationId: string | null) {
         role: template.role,
         framework: template.framework,
         model: null,
-        system_prompt: template.system_prompt,
-        settings: template.settings || {},
+        system_prompt: systemPrompt,
+        settings: agentSettings,
         created_at: new Date().toISOString(),
       }
       addAgent(newAgent)
@@ -417,8 +434,8 @@ export function useTeamTemplates(organizationId: string | null) {
         name: template.name,
         role: template.role,
         framework: template.framework,
-        system_prompt: template.system_prompt,
-        settings: template.settings || {},
+        system_prompt: systemPrompt,
+        settings: agentSettings,
       })
       .select()
       .single()

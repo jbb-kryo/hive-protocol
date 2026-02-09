@@ -7,7 +7,7 @@ import {
   Bot, Plus, Pencil, Trash2, ArrowRight, Check, Loader2,
   Users, Lock, Search, Building2, Eye, Copy, Settings2,
   Send, FileEdit, Clock, CheckCircle2, XCircle, MessageSquare,
-  Inbox
+  Inbox, Variable
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,8 +26,10 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { EmptyState } from '@/components/ui/empty-state'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { TeamTemplateFormDialog, teamTemplateIconMap } from '@/components/agents/team-template-form-dialog'
+import { TeamTemplateFormDialog, teamTemplateIconMap, type TeamTemplateFormData } from '@/components/agents/team-template-form-dialog'
 import { TemplateApprovalDialog, statusConfig } from '@/components/agents/template-approval-dialog'
+import { CloneWithParametersDialog } from '@/components/agents/clone-with-parameters-dialog'
+import { getParametersFromSettings } from '@/lib/template-parameters'
 import {
   useTeamTemplates,
   type TeamTemplate,
@@ -101,6 +103,7 @@ function TeamTemplateCard({
   const isApproved = template.status === 'approved'
   const canSubmit = template.status === 'draft' || template.status === 'changes_requested' || template.status === 'rejected'
   const canUse = isApproved && template.permission_level !== 'view'
+  const paramCount = getParametersFromSettings(template.settings).length
 
   return (
     <motion.div
@@ -146,6 +149,12 @@ function TeamTemplateCard({
                   {categoryLabels[template.category] || template.category}
                 </Badge>
                 <StatusBadge status={template.status} />
+                {paramCount > 0 && (
+                  <Badge variant="outline" className="text-[10px] border-teal-500/20 text-teal-600">
+                    <Variable className="w-2.5 h-2.5 mr-0.5" />
+                    {paramCount}
+                  </Badge>
+                )}
               </div>
             </div>
           </div>
@@ -381,6 +390,9 @@ export function TeamTemplatesSection({
   const [templateToDelete, setTemplateToDelete] = useState<TeamTemplate | null>(null)
   const [submitForReviewLoading, setSubmitForReviewLoading] = useState(false)
 
+  const [paramsDialogOpen, setParamsDialogOpen] = useState(false)
+  const [paramsTemplate, setParamsTemplate] = useState<TeamTemplate | null>(null)
+
   const [approvalTemplate, setApprovalTemplate] = useState<TeamTemplate | null>(null)
   const [approvalOpen, setApprovalOpen] = useState(false)
   const [approvalHistory, setApprovalHistory] = useState<ApprovalHistoryEntry[]>([])
@@ -448,10 +460,15 @@ export function TeamTemplatesSection({
     }
   }
 
-  const handleSubmit = async (data: { name: string; role: string; framework: string; system_prompt: string; description: string; tags: string; category: string; icon: string; permission_level: 'view' | 'use' | 'edit'; organization_id: string }) => {
+  const handleSubmit = async (data: TeamTemplateFormData & { organization_id: string }) => {
     setSubmitting(true)
     try {
       const tags = data.tags.split(',').map(t => t.trim()).filter(Boolean)
+      const settings: Record<string, unknown> = {}
+      if (data.parameters.length > 0) {
+        settings.parameters = data.parameters
+      }
+
       if (editingTemplate) {
         await updateTemplate(editingTemplate.id, {
           name: data.name,
@@ -463,6 +480,7 @@ export function TeamTemplatesSection({
           category: data.category,
           icon: data.icon,
           permission_level: data.permission_level,
+          settings,
         })
         toast.success('Team template updated')
       } else {
@@ -477,6 +495,7 @@ export function TeamTemplatesSection({
           category: data.category,
           icon: data.icon,
           permission_level: data.permission_level,
+          settings,
         })
         toast.success('Team template created as draft', {
           description: 'Submit it for review to make it available to your team.',
@@ -491,8 +510,14 @@ export function TeamTemplatesSection({
   }
 
   const handleSelectTemplate = (template: TeamTemplate) => {
-    setSelectedTemplate(template)
-    setPreviewOpen(true)
+    const params = getParametersFromSettings(template.settings)
+    if (params.length > 0) {
+      setParamsTemplate(template)
+      setParamsDialogOpen(true)
+    } else {
+      setSelectedTemplate(template)
+      setPreviewOpen(true)
+    }
   }
 
   const handleSubmitForReview = async (template: TeamTemplate) => {
@@ -584,6 +609,26 @@ export function TeamTemplatesSection({
         description: `${selectedTemplate.name} has been added to your agents.`,
       })
       setPreviewOpen(false)
+      onCloneSuccess?.()
+    } catch (err) {
+      toast.error('Failed to create agent', {
+        description: err instanceof Error ? err.message : 'Please try again.',
+      })
+    } finally {
+      setCloning(false)
+    }
+  }
+
+  const handleCloneWithParams = async (parameterValues: Record<string, string | number | boolean>) => {
+    if (!paramsTemplate) return
+    setCloning(true)
+    try {
+      await cloneToAgent(paramsTemplate, parameterValues)
+      toast.success('Agent created from team template', {
+        description: `${paramsTemplate.name} has been customized and added to your agents.`,
+      })
+      setParamsDialogOpen(false)
+      setParamsTemplate(null)
       onCloneSuccess?.()
     } catch (err) {
       toast.error('Failed to create agent', {
@@ -748,6 +793,17 @@ export function TeamTemplatesSection({
         onUse={handleUseTemplate}
         loading={cloning}
         canClone={selectedTemplate?.permission_level !== 'view' && selectedTemplate?.status === 'approved'}
+      />
+
+      <CloneWithParametersDialog
+        template={paramsTemplate}
+        open={paramsDialogOpen}
+        onOpenChange={(open) => {
+          setParamsDialogOpen(open)
+          if (!open) setParamsTemplate(null)
+        }}
+        onClone={handleCloneWithParams}
+        loading={cloning}
       />
 
       <TemplateApprovalDialog

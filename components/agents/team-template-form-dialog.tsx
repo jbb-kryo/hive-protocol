@@ -10,9 +10,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { LoadingButton } from '@/components/ui/loading-button'
+import { TemplateParameterEditor } from '@/components/agents/template-parameter-editor'
+import { getParametersFromSettings, extractVariables, type TemplateParameter } from '@/lib/template-parameters'
 import { toast } from 'sonner'
 import type { TeamTemplate } from '@/hooks/use-team-templates'
 
@@ -70,7 +74,7 @@ const permissionOptions = [
   { value: 'edit', label: 'Edit', description: 'Members can modify this template' },
 ]
 
-interface FormData {
+export interface TeamTemplateFormData {
   name: string
   role: string
   framework: string
@@ -80,9 +84,10 @@ interface FormData {
   category: string
   icon: string
   permission_level: 'view' | 'use' | 'edit'
+  parameters: TemplateParameter[]
 }
 
-const defaultFormData: FormData = {
+const defaultFormData: TeamTemplateFormData = {
   name: '',
   role: '',
   framework: 'anthropic',
@@ -92,6 +97,7 @@ const defaultFormData: FormData = {
   category: 'general',
   icon: 'Bot',
   permission_level: 'use',
+  parameters: [],
 }
 
 export function TeamTemplateFormDialog({
@@ -106,10 +112,10 @@ export function TeamTemplateFormDialog({
   onOpenChange: (open: boolean) => void
   template?: TeamTemplate | null
   organizationId: string
-  onSubmit: (data: FormData & { organization_id: string }) => void
+  onSubmit: (data: TeamTemplateFormData & { organization_id: string }) => void
   loading: boolean
 }) {
-  const [formData, setFormData] = useState<FormData>(defaultFormData)
+  const [formData, setFormData] = useState<TeamTemplateFormData>(defaultFormData)
 
   useEffect(() => {
     if (template) {
@@ -123,6 +129,7 @@ export function TeamTemplateFormDialog({
         category: template.category,
         icon: template.icon,
         permission_level: template.permission_level,
+        parameters: getParametersFromSettings(template.settings),
       })
     } else {
       setFormData(defaultFormData)
@@ -134,14 +141,41 @@ export function TeamTemplateFormDialog({
       toast.error('Name is required')
       return
     }
+
+    for (const param of formData.parameters) {
+      if (!param.key.trim()) {
+        toast.error('All parameters must have a key')
+        return
+      }
+      if (!param.label.trim()) {
+        toast.error(`Parameter "${param.key}" must have a label`)
+        return
+      }
+      if (param.type === 'select' && (!param.options || param.options.length === 0)) {
+        toast.error(`Dropdown parameter "${param.label}" must have at least one option`)
+        return
+      }
+    }
+
+    const keys = formData.parameters.map(p => p.key)
+    const uniqueKeys = new Set(keys)
+    if (keys.length !== uniqueKeys.size) {
+      toast.error('Parameter keys must be unique')
+      return
+    }
+
     onSubmit({ ...formData, organization_id: organizationId })
   }
+
+  const promptVariables = extractVariables(formData.system_prompt)
+  const paramKeys = new Set(formData.parameters.map(p => p.key))
+  const unmatchedVars = promptVariables.filter(v => !paramKeys.has(v))
 
   const IconComponent = teamTemplateIconMap[formData.icon] || Bot
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{template ? 'Edit Team Template' : 'Create Team Template'}</DialogTitle>
           <DialogDescription>
@@ -236,7 +270,7 @@ export function TeamTemplateFormDialog({
               <Label>Member Permissions</Label>
               <Select
                 value={formData.permission_level}
-                onValueChange={(value) => setFormData({ ...formData, permission_level: value as FormData['permission_level'] })}
+                onValueChange={(value) => setFormData({ ...formData, permission_level: value as TeamTemplateFormData['permission_level'] })}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -264,13 +298,38 @@ export function TeamTemplateFormDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>System Prompt</Label>
+            <div className="flex items-center justify-between">
+              <Label>System Prompt</Label>
+              {promptVariables.length > 0 && (
+                <div className="flex items-center gap-1">
+                  {promptVariables.map(v => (
+                    <Badge
+                      key={v}
+                      variant="outline"
+                      className={`text-[10px] font-mono ${
+                        paramKeys.has(v)
+                          ? 'border-teal-500/30 text-teal-600'
+                          : 'border-amber-500/30 text-amber-600'
+                      }`}
+                    >
+                      {`{{${v}}}`}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
             <Textarea
               value={formData.system_prompt}
               onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
-              placeholder="Define the agent's behavior and capabilities..."
+              placeholder="Define the agent's behavior. Use {{variable_name}} for customizable parameters..."
               rows={4}
+              className="font-mono text-sm"
             />
+            {unmatchedVars.length > 0 && (
+              <p className="text-[10px] text-amber-600">
+                Variables without matching parameters: {unmatchedVars.map(v => `{{${v}}}`).join(', ')}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -281,6 +340,13 @@ export function TeamTemplateFormDialog({
               placeholder="e.g., research, analysis, internal"
             />
           </div>
+
+          <Separator />
+
+          <TemplateParameterEditor
+            parameters={formData.parameters}
+            onChange={(parameters) => setFormData({ ...formData, parameters })}
+          />
         </div>
 
         <DialogFooter>
