@@ -259,12 +259,12 @@ CREATE TABLE team_templates (
 ```
 
 **Acceptance Criteria:**
-- [ ] Teams can create private templates
-- [ ] Team templates visible only to team members
-- [ ] Can clone team templates to personal agents
-- [ ] Team admin can manage team templates
-- [ ] Clear visual distinction from public templates
-- [ ] Search/filter includes team templates for members
+- [X] Teams can create private templates
+- [X] Team templates visible only to team members
+- [X] Can clone team templates to personal agents
+- [X] Team admin can manage team templates
+- [X] Clear visual distinction from public templates
+- [X] Search/filter includes team templates for members
 
 ---
 
