@@ -7,7 +7,7 @@ import {
   Bot, Plus, Pencil, Trash2, ArrowRight, Check, Loader2,
   Users, Lock, Search, Building2, Eye, Copy, Settings2,
   Send, FileEdit, Clock, CheckCircle2, XCircle, MessageSquare,
-  Inbox, Variable
+  Inbox, Variable, GitBranch
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -155,6 +155,12 @@ function TeamTemplateCard({
                     {paramCount}
                   </Badge>
                 )}
+                {template.parent_template_id && (
+                  <Badge variant="outline" className="text-[10px] border-sky-500/20 text-sky-600">
+                    <GitBranch className="w-2.5 h-2.5 mr-0.5" />
+                    {template.inheritance_mode === 'compose' ? 'composed' : 'child'}
+                  </Badge>
+                )}
               </div>
             </div>
           </div>
@@ -258,6 +264,7 @@ function TeamTemplatePreviewDialog({
   onUse,
   loading,
   canClone,
+  allTemplates = [],
 }: {
   template: TeamTemplate | null
   open: boolean
@@ -265,11 +272,15 @@ function TeamTemplatePreviewDialog({
   onUse: () => void
   loading: boolean
   canClone: boolean
+  allTemplates?: TeamTemplate[]
 }) {
   if (!template) return null
 
   const IconComponent = teamTemplateIconMap[template.icon] || Bot
   const permInfo = permissionLabels[template.permission_level] || permissionLabels.use
+  const parentTemplate = template.parent_template_id
+    ? allTemplates.find(t => t.id === template.parent_template_id)
+    : null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -309,6 +320,16 @@ function TeamTemplatePreviewDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {parentTemplate && (
+            <div className="flex items-center gap-2 rounded-lg border border-sky-500/20 bg-sky-500/[0.03] px-3 py-2">
+              <GitBranch className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+              <span className="text-xs text-muted-foreground">
+                {template.inheritance_mode === 'compose' ? 'Composed with' : 'Inherits from'}{' '}
+                <span className="font-medium text-foreground">{parentTemplate.name}</span>
+              </span>
+            </div>
+          )}
+
           <div>
             <h4 className="text-sm font-medium mb-2">Configuration</h4>
             <div className="grid grid-cols-2 gap-3 text-sm">
@@ -481,6 +502,9 @@ export function TeamTemplatesSection({
           icon: data.icon,
           permission_level: data.permission_level,
           settings,
+          parent_template_id: data.parent_template_id,
+          inheritance_mode: data.inheritance_mode,
+          override_fields: data.override_fields,
         })
         toast.success('Team template updated')
       } else {
@@ -496,6 +520,9 @@ export function TeamTemplatesSection({
           icon: data.icon,
           permission_level: data.permission_level,
           settings,
+          parent_template_id: data.parent_template_id,
+          inheritance_mode: data.inheritance_mode,
+          override_fields: data.override_fields,
         })
         toast.success('Team template created as draft', {
           description: 'Submit it for review to make it available to your team.',
@@ -781,6 +808,7 @@ export function TeamTemplatesSection({
           onOpenChange={setFormOpen}
           template={editingTemplate}
           organizationId={selectedOrg.id}
+          allTemplates={templates}
           onSubmit={handleSubmit}
           loading={submitting}
         />
@@ -793,6 +821,7 @@ export function TeamTemplatesSection({
         onUse={handleUseTemplate}
         loading={cloning}
         canClone={selectedTemplate?.permission_level !== 'view' && selectedTemplate?.status === 'approved'}
+        allTemplates={templates}
       />
 
       <CloneWithParametersDialog

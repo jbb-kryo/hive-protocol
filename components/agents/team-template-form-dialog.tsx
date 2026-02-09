@@ -1,22 +1,25 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Bot, Brain, Code, PenTool, BarChart, Headphones, TrendingUp,
   FileText, Shield, Layout, Kanban, Cpu, Server, Search,
-  GraduationCap, Target, Globe, FlaskConical, History, GitMerge, BarChart3
+  GraduationCap, Target, Globe, FlaskConical, History, GitMerge, BarChart3,
+  GitBranch, AlertTriangle, Layers
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { TemplateParameterEditor } from '@/components/agents/template-parameter-editor'
 import { getParametersFromSettings, extractVariables, type TemplateParameter } from '@/lib/template-parameters'
+import { wouldCreateCircularRef, buildTemplatesMap, INHERITABLE_FIELDS, type InheritanceMode } from '@/lib/template-inheritance'
 import { toast } from 'sonner'
 import type { TeamTemplate } from '@/hooks/use-team-templates'
 
@@ -85,6 +88,9 @@ export interface TeamTemplateFormData {
   icon: string
   permission_level: 'view' | 'use' | 'edit'
   parameters: TemplateParameter[]
+  parent_template_id: string | null
+  inheritance_mode: InheritanceMode
+  override_fields: string[]
 }
 
 const defaultFormData: TeamTemplateFormData = {
@@ -98,6 +104,9 @@ const defaultFormData: TeamTemplateFormData = {
   icon: 'Bot',
   permission_level: 'use',
   parameters: [],
+  parent_template_id: null,
+  inheritance_mode: 'inherit',
+  override_fields: [],
 }
 
 export function TeamTemplateFormDialog({
@@ -105,6 +114,7 @@ export function TeamTemplateFormDialog({
   onOpenChange,
   template,
   organizationId,
+  allTemplates = [],
   onSubmit,
   loading,
 }: {
@@ -112,10 +122,20 @@ export function TeamTemplateFormDialog({
   onOpenChange: (open: boolean) => void
   template?: TeamTemplate | null
   organizationId: string
+  allTemplates?: TeamTemplate[]
   onSubmit: (data: TeamTemplateFormData & { organization_id: string }) => void
   loading: boolean
 }) {
   const [formData, setFormData] = useState<TeamTemplateFormData>(defaultFormData)
+
+  const eligibleParents = useMemo(() => {
+    const templatesMap = buildTemplatesMap(allTemplates)
+    return allTemplates.filter(t => {
+      if (template && t.id === template.id) return false
+      if (template && wouldCreateCircularRef(template.id, t.id, templatesMap)) return false
+      return true
+    })
+  }, [allTemplates, template])
 
   useEffect(() => {
     if (template) {
@@ -130,6 +150,9 @@ export function TeamTemplateFormDialog({
         icon: template.icon,
         permission_level: template.permission_level,
         parameters: getParametersFromSettings(template.settings),
+        parent_template_id: template.parent_template_id || null,
+        inheritance_mode: template.inheritance_mode || 'inherit',
+        override_fields: template.override_fields || [],
       })
     } else {
       setFormData(defaultFormData)
@@ -340,6 +363,139 @@ export function TeamTemplateFormDialog({
               placeholder="e.g., research, analysis, internal"
             />
           </div>
+
+          <Separator />
+
+          {allTemplates.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <GitBranch className="w-4 h-4 text-teal-600" />
+                <Label className="text-sm font-medium">Template Inheritance</Label>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Parent Template</Label>
+                <Select
+                  value={formData.parent_template_id || '_none'}
+                  onValueChange={(value) => {
+                    const parentId = value === '_none' ? null : value
+                    setFormData({
+                      ...formData,
+                      parent_template_id: parentId,
+                      override_fields: parentId ? formData.override_fields : [],
+                    })
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="No parent (standalone)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">No parent (standalone)</SelectItem>
+                    {eligibleParents.map(t => {
+                      const ParentIcon = teamTemplateIconMap[t.icon] || Bot
+                      return (
+                        <SelectItem key={t.id} value={t.id}>
+                          <div className="flex items-center gap-2">
+                            <ParentIcon className="w-3.5 h-3.5" />
+                            <span>{t.name}</span>
+                            {t.parent_template_id && (
+                              <Badge variant="outline" className="text-[9px] ml-1">child</Badge>
+                            )}
+                          </div>
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {formData.parent_template_id && (
+                <div className="space-y-3 rounded-lg border border-teal-500/20 bg-teal-500/[0.02] p-3">
+                  <div className="flex items-center gap-2">
+                    <Layers className="w-3.5 h-3.5 text-teal-600" />
+                    <Label className="text-xs font-medium">Inheritance Mode</Label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, inheritance_mode: 'inherit' })}
+                      className={`rounded-lg border p-2.5 text-left transition-colors ${
+                        formData.inheritance_mode === 'inherit'
+                          ? 'border-teal-500 bg-teal-500/10'
+                          : 'border-border hover:border-teal-500/30'
+                      }`}
+                    >
+                      <p className="text-xs font-medium mb-0.5">Inherit</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Override parent fields selectively
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, inheritance_mode: 'compose' })}
+                      className={`rounded-lg border p-2.5 text-left transition-colors ${
+                        formData.inheritance_mode === 'compose'
+                          ? 'border-teal-500 bg-teal-500/10'
+                          : 'border-border hover:border-teal-500/30'
+                      }`}
+                    >
+                      <p className="text-xs font-medium mb-0.5">Compose</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Merge system prompts together
+                      </p>
+                    </button>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Override Fields</Label>
+                    <p className="text-[10px] text-muted-foreground">
+                      Selected fields use this template&apos;s values. Unselected fields inherit from parent.
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {INHERITABLE_FIELDS.map(field => {
+                        const isOverridden = formData.override_fields.includes(field)
+                        return (
+                          <button
+                            key={field}
+                            type="button"
+                            onClick={() => {
+                              const next = isOverridden
+                                ? formData.override_fields.filter(f => f !== field)
+                                : [...formData.override_fields, field]
+                              setFormData({ ...formData, override_fields: next })
+                            }}
+                            className={`rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
+                              isOverridden
+                                ? 'border-teal-500 bg-teal-500/10 text-teal-700'
+                                : 'border-border text-muted-foreground hover:border-teal-500/30'
+                            }`}
+                          >
+                            {field.replace(/_/g, ' ')}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const parent = allTemplates.find(t => t.id === formData.parent_template_id)
+                    if (!parent) return null
+                    return (
+                      <div className="pt-1 border-t border-teal-500/10">
+                        <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                          <GitBranch className="w-2.5 h-2.5" />
+                          Inheriting from <span className="font-medium text-foreground">{parent.name}</span>
+                          {parent.parent_template_id && (
+                            <span className="text-[9px]">(also a child template)</span>
+                          )}
+                        </p>
+                      </div>
+                    )
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
 
           <Separator />
 

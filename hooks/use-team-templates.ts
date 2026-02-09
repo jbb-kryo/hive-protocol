@@ -5,6 +5,12 @@ import { supabase } from '@/lib/supabase'
 import { useStore } from '@/store'
 import { sanitizeAgentName, sanitizeAgentPrompt, sanitizeText } from '@/lib/sanitize'
 import { getParametersFromSettings, substituteVariables } from '@/lib/template-parameters'
+import {
+  resolveTemplate as resolveInheritance,
+  buildTemplatesMap,
+  wouldCreateCircularRef,
+  type ResolvedTemplate,
+} from '@/lib/template-inheritance'
 
 export type TemplateStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'changes_requested'
 
@@ -29,6 +35,9 @@ export interface TeamTemplate {
   reviewed_by: string | null
   reviewed_at: string | null
   review_feedback: string | null
+  parent_template_id: string | null
+  inheritance_mode: 'inherit' | 'compose'
+  override_fields: string[]
   created_at: string
   updated_at: string
 }
@@ -56,6 +65,9 @@ export interface CreateTeamTemplateData {
   icon?: string
   settings?: Record<string, unknown>
   permission_level?: 'view' | 'use' | 'edit'
+  parent_template_id?: string | null
+  inheritance_mode?: 'inherit' | 'compose'
+  override_fields?: string[]
 }
 
 export interface UpdateTeamTemplateData {
@@ -70,6 +82,9 @@ export interface UpdateTeamTemplateData {
   settings?: Record<string, unknown>
   permission_level?: 'view' | 'use' | 'edit'
   is_active?: boolean
+  parent_template_id?: string | null
+  inheritance_mode?: 'inherit' | 'compose'
+  override_fields?: string[]
 }
 
 export function useTeamTemplates(organizationId: string | null) {
@@ -164,7 +179,7 @@ export function useTeamTemplates(organizationId: string | null) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('Not authenticated')
 
-    const sanitizedData = {
+    const sanitizedData: Record<string, unknown> = {
       organization_id: data.organization_id,
       created_by: user.id,
       name: sanitizeAgentName(data.name),
@@ -179,6 +194,9 @@ export function useTeamTemplates(organizationId: string | null) {
       permission_level: data.permission_level || 'use',
       is_active: true,
       status: 'draft',
+      parent_template_id: data.parent_template_id || null,
+      inheritance_mode: data.inheritance_mode || 'inherit',
+      override_fields: data.override_fields || [],
     }
 
     const { data: newTemplate, error: insertError } = await supabase
@@ -217,6 +235,9 @@ export function useTeamTemplates(organizationId: string | null) {
     if (updates.settings !== undefined) sanitizedUpdates.settings = updates.settings
     if (updates.permission_level !== undefined) sanitizedUpdates.permission_level = updates.permission_level
     if (updates.is_active !== undefined) sanitizedUpdates.is_active = updates.is_active
+    if (updates.parent_template_id !== undefined) sanitizedUpdates.parent_template_id = updates.parent_template_id || null
+    if (updates.inheritance_mode !== undefined) sanitizedUpdates.inheritance_mode = updates.inheritance_mode
+    if (updates.override_fields !== undefined) sanitizedUpdates.override_fields = updates.override_fields
 
     const { data: updated, error: updateError } = await supabase
       .from('team_templates')
@@ -399,16 +420,22 @@ export function useTeamTemplates(organizationId: string | null) {
     template: TeamTemplate,
     parameterValues?: Record<string, string | number | boolean>,
   ) => {
-    let systemPrompt = template.system_prompt
+    const map = buildTemplatesMap(templates)
+    const resolved = resolveInheritance(template, map)
+
+    let systemPrompt = resolved.system_prompt
     if (parameterValues && systemPrompt) {
       systemPrompt = substituteVariables(systemPrompt, parameterValues)
     }
 
     const agentSettings: Record<string, unknown> = {
-      ...(template.settings || {}),
+      ...(resolved.settings || {}),
+    }
+    agentSettings.template_id = template.id
+    if (resolved.inheritanceChain.length > 1) {
+      agentSettings.inheritance_chain = resolved.inheritanceChain
     }
     if (parameterValues && Object.keys(parameterValues).length > 0) {
-      agentSettings.template_id = template.id
       agentSettings.parameter_values = parameterValues
     }
 
@@ -416,9 +443,9 @@ export function useTeamTemplates(organizationId: string | null) {
       const newAgent = {
         id: `demo_agent_${Date.now()}`,
         user_id: 'demo',
-        name: template.name,
-        role: template.role,
-        framework: template.framework,
+        name: resolved.name,
+        role: resolved.role,
+        framework: resolved.framework,
         model: null,
         system_prompt: systemPrompt,
         settings: agentSettings,
@@ -431,9 +458,9 @@ export function useTeamTemplates(organizationId: string | null) {
     const { data, error: insertError } = await supabase
       .from('agents')
       .insert({
-        name: template.name,
-        role: template.role,
-        framework: template.framework,
+        name: resolved.name,
+        role: resolved.role,
+        framework: resolved.framework,
         system_prompt: systemPrompt,
         settings: agentSettings,
       })
@@ -444,7 +471,7 @@ export function useTeamTemplates(organizationId: string | null) {
 
     addAgent(data)
     return data
-  }, [isDemo, addAgent])
+  }, [isDemo, addAgent, templates])
 
   const searchTemplates = useCallback((query: string) => {
     const lowerQuery = query.toLowerCase()
@@ -459,6 +486,16 @@ export function useTeamTemplates(organizationId: string | null) {
   const getCategories = useCallback(() => {
     const categories = new Set(templates.map(t => t.category))
     return Array.from(categories).sort()
+  }, [templates])
+
+  const resolveTemplate = useCallback((template: TeamTemplate): ResolvedTemplate => {
+    const map = buildTemplatesMap(templates)
+    return resolveInheritance(template, map)
+  }, [templates])
+
+  const checkCircularRef = useCallback((templateId: string, parentId: string): boolean => {
+    const map = buildTemplatesMap(templates)
+    return wouldCreateCircularRef(templateId, parentId, map)
   }, [templates])
 
   return {
@@ -479,5 +516,7 @@ export function useTeamTemplates(organizationId: string | null) {
     cloneToAgent,
     searchTemplates,
     getCategories,
+    resolveTemplate,
+    checkCircularRef,
   }
 }
