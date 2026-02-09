@@ -7,7 +7,7 @@ import {
   Code, PenTool, BarChart, Headphones, TrendingUp,
   FileText, Shield, Layout, Kanban, Brain, Cpu, Server, Search, Loader2,
   GraduationCap, Target, Globe, FlaskConical, History, GitMerge, BarChart3,
-  ChevronLeft, Sparkles, Tag, RotateCcw, ArrowUpCircle
+  ChevronLeft, Sparkles, Tag, RotateCcw, ArrowUpCircle, Rocket
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { PageTransition } from '@/components/ui/page-transition'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { useDefaultAgents, type DefaultAgent, type CreateTemplateData } from '@/hooks/use-default-agents'
+import { BatchDeployDialog } from '@/components/agents/batch-deploy-dialog'
 import { toast } from 'sonner'
 
 const iconOptions = [
@@ -342,6 +343,8 @@ export default function AdminTemplatesPage() {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [selectedHistoryTemplate, setSelectedHistoryTemplate] = useState<DefaultAgent | null>(null)
   const [rollingBack, setRollingBack] = useState(false)
+  const [deployDialogOpen, setDeployDialogOpen] = useState(false)
+  const [deployTemplate, setDeployTemplate] = useState<DefaultAgent | null>(null)
 
   useEffect(() => {
     fetchAllTemplates()
@@ -442,6 +445,11 @@ export default function AdminTemplatesPage() {
     } finally {
       setLoadingHistory(false)
     }
+  }
+
+  const handleBatchDeploy = (template: DefaultAgent) => {
+    setDeployTemplate(template)
+    setDeployDialogOpen(true)
   }
 
   const handleRollback = async (template: DefaultAgent) => {
@@ -609,6 +617,15 @@ export default function AdminTemplatesPage() {
                                   variant="ghost"
                                   size="icon"
                                   className="h-8 w-8"
+                                  onClick={() => handleBatchDeploy(template)}
+                                  title="Deploy to swarms"
+                                >
+                                  <Rocket className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
                                   onClick={() => handleEdit(template)}
                                   title="Edit template"
                                 >
@@ -678,6 +695,12 @@ export default function AdminTemplatesPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <BatchDeployDialog
+          open={deployDialogOpen}
+          onOpenChange={setDeployDialogOpen}
+          template={deployTemplate}
+        />
 
         <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
           <DialogContent className="sm:max-w-lg">

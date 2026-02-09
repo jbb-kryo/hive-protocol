@@ -8,7 +8,7 @@ import {
   Code, PenTool, BarChart, Headphones, TrendingUp,
   FileText, Shield, Layout, Kanban, Brain, Cpu, Server,
   GraduationCap, Target, Globe, FlaskConical, History,
-  GitMerge, BarChart3, Sparkles, ChevronLeft
+  GitMerge, BarChart3, Sparkles, ChevronLeft, Rocket
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,6 +21,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { PageTransition } from '@/components/ui/page-transition'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { DemoBanner } from '@/components/dashboard/demo-banner'
+import { BatchDeployDialog } from '@/components/agents/batch-deploy-dialog'
 import { useDefaultAgents, type DefaultAgent } from '@/hooks/use-default-agents'
 import { useStore } from '@/store'
 import { toast } from 'sonner'
@@ -148,12 +149,14 @@ function TemplatePreviewDialog({
   open,
   onOpenChange,
   onUse,
+  onBatchDeploy,
   loading,
 }: {
   template: DefaultAgent | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onUse: () => void
+  onBatchDeploy: () => void
   loading: boolean
 }) {
   if (!template) return null
@@ -229,6 +232,10 @@ function TemplatePreviewDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
+          <Button variant="secondary" onClick={onBatchDeploy}>
+            <Rocket className="w-4 h-4 mr-2" />
+            Deploy to Swarms
+          </Button>
           <LoadingButton onClick={onUse} loading={loading}>
             <Check className="w-4 h-4 mr-2" />
             Use This Template
@@ -248,6 +255,8 @@ export default function AgentTemplatesPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<DefaultAgent | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [cloning, setCloning] = useState(false)
+  const [deployDialogOpen, setDeployDialogOpen] = useState(false)
+  const [deployTemplate, setDeployTemplate] = useState<DefaultAgent | null>(null)
 
   useEffect(() => {
     fetchTemplates()
@@ -276,6 +285,13 @@ export default function AgentTemplatesPage() {
   const handleSelectTemplate = (template: DefaultAgent) => {
     setSelectedTemplate(template)
     setPreviewOpen(true)
+  }
+
+  const handleBatchDeploy = () => {
+    if (!selectedTemplate) return
+    setPreviewOpen(false)
+    setDeployTemplate(selectedTemplate)
+    setDeployDialogOpen(true)
   }
 
   const handleUseTemplate = async () => {
@@ -413,7 +429,14 @@ export default function AgentTemplatesPage() {
           open={previewOpen}
           onOpenChange={setPreviewOpen}
           onUse={handleUseTemplate}
+          onBatchDeploy={handleBatchDeploy}
           loading={cloning}
+        />
+
+        <BatchDeployDialog
+          open={deployDialogOpen}
+          onOpenChange={setDeployDialogOpen}
+          template={deployTemplate}
         />
       </div>
     </PageTransition>

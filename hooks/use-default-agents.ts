@@ -48,6 +48,13 @@ export interface TemplateVersionInfo {
   templateId: string
 }
 
+export interface BatchDeployResult {
+  swarmId: string
+  agentId?: string
+  success: boolean
+  error?: string
+}
+
 export function useDefaultAgents() {
   const { addAgent, isDemo } = useStore()
   const [templates, setTemplates] = useState<DefaultAgent[]>([])
@@ -500,6 +507,62 @@ export function useDefaultAgents() {
     return updated
   }, [getVersionHistory])
 
+  const batchDeployToSwarms = useCallback(async (
+    template: DefaultAgent,
+    swarmIds: string[],
+    onProgress?: (completed: number, total: number, result: BatchDeployResult) => void
+  ): Promise<BatchDeployResult[]> => {
+    const results: BatchDeployResult[] = []
+
+    for (let i = 0; i < swarmIds.length; i++) {
+      const swarmId = swarmIds[i]
+      try {
+        const { data: agent, error: agentError } = await supabase
+          .from('agents')
+          .insert({
+            name: template.name,
+            role: template.role,
+            framework: template.framework,
+            system_prompt: template.system_prompt,
+            settings: template.settings || {},
+            source_template_id: template.id,
+            source_template_version: template.version,
+          })
+          .select()
+          .single()
+
+        if (agentError) throw agentError
+
+        const { error: linkError } = await supabase
+          .from('swarm_agents')
+          .insert({
+            swarm_id: swarmId,
+            agent_id: agent.id,
+          })
+
+        if (linkError) throw linkError
+
+        const result: BatchDeployResult = {
+          swarmId,
+          agentId: agent.id,
+          success: true,
+        }
+        results.push(result)
+        onProgress?.(i + 1, swarmIds.length, result)
+      } catch (err) {
+        const result: BatchDeployResult = {
+          swarmId,
+          success: false,
+          error: err instanceof Error ? err.message : 'Deployment failed',
+        }
+        results.push(result)
+        onProgress?.(i + 1, swarmIds.length, result)
+      }
+    }
+
+    return results
+  }, [])
+
   return {
     templates,
     loading,
@@ -520,6 +583,7 @@ export function useDefaultAgents() {
     checkForUpdates,
     upgradeAgent,
     rollbackTemplate,
+    batchDeployToSwarms,
   }
 }
 
