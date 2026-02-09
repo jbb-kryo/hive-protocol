@@ -570,9 +570,181 @@ export function useMarketplaceActions() {
     }
   };
 
+  const getListingByTemplate = async (templateId: string): Promise<MarketplaceAgent | null> => {
+    try {
+      const { data, error } = await supabase
+        .from('marketplace_agents')
+        .select(`
+          *,
+          category:marketplace_categories(*)
+        `)
+        .eq('source_template_id', templateId)
+        .eq('is_template_promoted', true)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error fetching template listing:', error);
+      return null;
+    }
+  };
+
+  const promoteTemplate = async (templateData: {
+    templateId: string;
+    name: string;
+    slug: string;
+    description: string;
+    long_description: string;
+    category_id: string;
+    tags: string[];
+    pricing_type: 'free' | 'one_time' | 'subscription';
+    price_amount?: number;
+    billing_interval?: 'monthly' | 'yearly';
+    icon_url?: string;
+    banner_url?: string;
+    sync_enabled: boolean;
+    configuration: Record<string, unknown>;
+    version: string;
+  }) => {
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { data, error } = await supabase
+        .from('marketplace_agents')
+        .insert({
+          creator_id: user.id,
+          source_template_id: templateData.templateId,
+          source_agent_id: null,
+          name: templateData.name,
+          slug: templateData.slug,
+          description: templateData.description,
+          long_description: templateData.long_description,
+          category_id: templateData.category_id,
+          tags: templateData.tags,
+          pricing_type: templateData.pricing_type,
+          price_amount: templateData.price_amount || 0,
+          billing_interval: templateData.billing_interval || null,
+          icon_url: templateData.icon_url || '',
+          banner_url: templateData.banner_url || '',
+          configuration: templateData.configuration,
+          version: templateData.version,
+          is_published: true,
+          is_template_promoted: true,
+          template_sync_enabled: templateData.sync_enabled,
+          published_at: new Date().toISOString(),
+          last_synced_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      toast.success('Template promoted to marketplace!');
+      return data;
+    } catch (error) {
+      console.error('Error promoting template:', error);
+      toast.error('Failed to promote template');
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const syncTemplateToListing = async (templateId: string, templateData: {
+    name: string;
+    description?: string;
+    version: string;
+    configuration: Record<string, unknown>;
+    tags?: string[];
+  }) => {
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('marketplace_agents')
+        .update({
+          name: templateData.name,
+          description: templateData.description,
+          version: templateData.version,
+          configuration: templateData.configuration,
+          tags: templateData.tags,
+          updated_at: new Date().toISOString(),
+          last_synced_at: new Date().toISOString(),
+        })
+        .eq('source_template_id', templateId)
+        .eq('is_template_promoted', true)
+        .eq('template_sync_enabled', true);
+
+      if (error) throw error;
+
+      toast.success('Marketplace listing synced');
+    } catch (error) {
+      console.error('Error syncing template:', error);
+      toast.error('Failed to sync marketplace listing');
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getTemplateMarketplaceStats = async (templateIds: string[]): Promise<Record<string, {
+    listingId: string;
+    installCount: number;
+    viewCount: number;
+    averageRating: number;
+    reviewCount: number;
+    pricingType: string;
+    priceAmount: number;
+    isPublished: boolean;
+  }>> => {
+    if (templateIds.length === 0) return {};
+    try {
+      const { data, error } = await supabase
+        .from('marketplace_agents')
+        .select('id, source_template_id, install_count, view_count, average_rating, review_count, pricing_type, price_amount, is_published')
+        .in('source_template_id', templateIds)
+        .eq('is_template_promoted', true);
+
+      if (error) throw error;
+
+      const stats: Record<string, {
+        listingId: string;
+        installCount: number;
+        viewCount: number;
+        averageRating: number;
+        reviewCount: number;
+        pricingType: string;
+        priceAmount: number;
+        isPublished: boolean;
+      }> = {};
+
+      for (const row of (data || [])) {
+        if (row.source_template_id) {
+          stats[row.source_template_id] = {
+            listingId: row.id,
+            installCount: row.install_count || 0,
+            viewCount: row.view_count || 0,
+            averageRating: row.average_rating || 0,
+            reviewCount: row.review_count || 0,
+            pricingType: row.pricing_type,
+            priceAmount: row.price_amount || 0,
+            isPublished: row.is_published,
+          };
+        }
+      }
+      return stats;
+    } catch (error) {
+      console.error('Error fetching template marketplace stats:', error);
+      return {};
+    }
+  };
+
   return {
     loading,
     getPublishedListingBySourceAgent,
+    getListingByTemplate,
     publishAgent,
     unpublishAgent,
     updateMarketplaceAgent,
@@ -580,6 +752,9 @@ export function useMarketplaceActions() {
     createReview,
     updateReview,
     markReviewHelpful,
+    promoteTemplate,
+    syncTemplateToListing,
+    getTemplateMarketplaceStats,
   };
 }
 

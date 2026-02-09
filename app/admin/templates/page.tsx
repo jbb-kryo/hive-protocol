@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Bot, Plus, Pencil, Trash2, Power, PowerOff, GripVertical,
   Code, PenTool, BarChart, Headphones, TrendingUp,
   FileText, Shield, Layout, Kanban, Brain, Cpu, Server, Search, Loader2,
   GraduationCap, Target, Globe, FlaskConical, History, GitMerge, BarChart3,
-  ChevronLeft, Sparkles, Tag, RotateCcw, ArrowUpCircle, Rocket
+  ChevronLeft, Sparkles, Tag, RotateCcw, ArrowUpCircle, Rocket,
+  Store, Download, Eye, Star
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -26,6 +27,9 @@ import { PageTransition } from '@/components/ui/page-transition'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { useDefaultAgents, type DefaultAgent, type CreateTemplateData } from '@/hooks/use-default-agents'
 import { BatchDeployDialog } from '@/components/agents/batch-deploy-dialog'
+import { PromoteToMarketplaceDialog } from '@/components/agents/promote-to-marketplace-dialog'
+import { useMarketplaceActions } from '@/hooks/use-marketplace'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from 'sonner'
 
 const iconOptions = [
@@ -316,6 +320,17 @@ function TemplateFormDialog({
   )
 }
 
+interface TemplateMarketplaceStats {
+  listingId: string
+  installCount: number
+  viewCount: number
+  averageRating: number
+  reviewCount: number
+  pricingType: string
+  priceAmount: number
+  isPublished: boolean
+}
+
 export default function AdminTemplatesPage() {
   const router = useRouter()
   const {
@@ -330,6 +345,7 @@ export default function AdminTemplatesPage() {
     getVersionHistory,
     rollbackTemplate,
   } = useDefaultAgents()
+  const { getTemplateMarketplaceStats } = useMarketplaceActions()
 
   const [formOpen, setFormOpen] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState<DefaultAgent | null>(null)
@@ -345,10 +361,25 @@ export default function AdminTemplatesPage() {
   const [rollingBack, setRollingBack] = useState(false)
   const [deployDialogOpen, setDeployDialogOpen] = useState(false)
   const [deployTemplate, setDeployTemplate] = useState<DefaultAgent | null>(null)
+  const [promoteDialogOpen, setPromoteDialogOpen] = useState(false)
+  const [promoteTemplate, setPromoteTemplate] = useState<DefaultAgent | null>(null)
+  const [marketplaceStats, setMarketplaceStats] = useState<Record<string, TemplateMarketplaceStats>>({})
+
+  const loadMarketplaceStats = useCallback(async (templateIds: string[]) => {
+    if (templateIds.length === 0) return
+    const stats = await getTemplateMarketplaceStats(templateIds)
+    setMarketplaceStats(stats)
+  }, [getTemplateMarketplaceStats])
 
   useEffect(() => {
     fetchAllTemplates()
   }, [fetchAllTemplates])
+
+  useEffect(() => {
+    if (templates.length > 0) {
+      loadMarketplaceStats(templates.map(t => t.id))
+    }
+  }, [templates, loadMarketplaceStats])
 
   const handleCreate = () => {
     setEditingTemplate(null)
@@ -452,6 +483,11 @@ export default function AdminTemplatesPage() {
     setDeployDialogOpen(true)
   }
 
+  const handlePromote = (template: DefaultAgent) => {
+    setPromoteTemplate(template)
+    setPromoteDialogOpen(true)
+  }
+
   const handleRollback = async (template: DefaultAgent) => {
     if (!template.previous_version_id) {
       toast.error('No previous version available')
@@ -530,10 +566,10 @@ export default function AdminTemplatesPage() {
                       <TableHead>Name</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead>Version</TableHead>
-                      <TableHead>Framework</TableHead>
+                      <TableHead>Marketplace</TableHead>
                       <TableHead>Tags</TableHead>
                       <TableHead className="w-[100px] text-center">Status</TableHead>
-                      <TableHead className="w-[150px]">Actions</TableHead>
+                      <TableHead className="w-[180px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -585,7 +621,49 @@ export default function AdminTemplatesPage() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <span className="text-sm">{template.framework}</span>
+                              {marketplaceStats[template.id] ? (
+                                <TooltipProvider>
+                                  <div className="flex items-center gap-2">
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Badge
+                                          variant={marketplaceStats[template.id].pricingType === 'free' ? 'secondary' : 'default'}
+                                          className="text-[10px] cursor-default"
+                                        >
+                                          <Store className="w-3 h-3 mr-1" />
+                                          {marketplaceStats[template.id].pricingType === 'free'
+                                            ? 'Free'
+                                            : `$${marketplaceStats[template.id].priceAmount}`}
+                                        </Badge>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="bottom" className="text-xs">
+                                        <div className="space-y-1">
+                                          <div className="flex items-center gap-1.5">
+                                            <Download className="w-3 h-3" />
+                                            {marketplaceStats[template.id].installCount} installs
+                                          </div>
+                                          <div className="flex items-center gap-1.5">
+                                            <Eye className="w-3 h-3" />
+                                            {marketplaceStats[template.id].viewCount} views
+                                          </div>
+                                          {marketplaceStats[template.id].reviewCount > 0 && (
+                                            <div className="flex items-center gap-1.5">
+                                              <Star className="w-3 h-3" />
+                                              {marketplaceStats[template.id].averageRating.toFixed(1)} ({marketplaceStats[template.id].reviewCount})
+                                            </div>
+                                          )}
+                                        </div>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                    <span className="text-xs text-muted-foreground">
+                                      {marketplaceStats[template.id].installCount}
+                                      <Download className="w-3 h-3 inline ml-0.5" />
+                                    </span>
+                                  </div>
+                                </TooltipProvider>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">--</span>
+                              )}
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-wrap gap-1 max-w-[150px]">
@@ -613,6 +691,15 @@ export default function AdminTemplatesPage() {
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className={`h-8 w-8 ${marketplaceStats[template.id] ? 'text-primary' : ''}`}
+                                  onClick={() => handlePromote(template)}
+                                  title={marketplaceStats[template.id] ? 'Manage marketplace listing' : 'Promote to marketplace'}
+                                >
+                                  <Store className="w-4 h-4" />
+                                </Button>
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -700,6 +787,13 @@ export default function AdminTemplatesPage() {
           open={deployDialogOpen}
           onOpenChange={setDeployDialogOpen}
           template={deployTemplate}
+        />
+
+        <PromoteToMarketplaceDialog
+          open={promoteDialogOpen}
+          onOpenChange={setPromoteDialogOpen}
+          template={promoteTemplate}
+          onPromoted={() => loadMarketplaceStats(templates.map(t => t.id))}
         />
 
         <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
