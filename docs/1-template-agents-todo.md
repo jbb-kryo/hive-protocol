@@ -427,14 +427,14 @@ Create a dedicated analytics dashboard for templates showing usage metrics, adop
 4. Export analytics data
 
 **Acceptance Criteria:**
-- [ ] Analytics page accessible from admin templates
-- [ ] Total clones per template with trend
-- [ ] Active usage count (agents in use)
-- [ ] Retention rate calculation
-- [ ] Rating average and distribution
-- [ ] Category-level aggregations
-- [ ] Date range filtering
-- [ ] Export to CSV
+- [X] Analytics page accessible from admin templates
+- [X] Total clones per template with trend
+- [X] Active usage count (agents in use)
+- [X] Retention rate calculation
+- [X] Rating average and distribution
+- [X] Category-level aggregations
+- [X] Date range filtering
+- [X] Export to CSV
 
 ---
 
