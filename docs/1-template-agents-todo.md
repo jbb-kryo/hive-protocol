@@ -338,13 +338,13 @@ Allow templates to define customizable parameters that users fill in when clonin
 ```
 
 **Acceptance Criteria:**
-- [ ] Templates can define parameters in settings
-- [ ] Parameter form appears when cloning
-- [ ] Required parameters must be filled
-- [ ] Variables substituted in system prompt
-- [ ] Preview shows result of substitution
-- [ ] Parameter values saved with cloned agent
-- [ ] Can re-customize parameters after cloning
+- [X] Templates can define parameters in settings
+- [X] Parameter form appears when cloning
+- [X] Required parameters must be filled
+- [X] Variables substituted in system prompt
+- [X] Preview shows result of substitution
+- [X] Parameter values saved with cloned agent
+- [X] Can re-customize parameters after cloning
 
 ---
 
