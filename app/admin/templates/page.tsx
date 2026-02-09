@@ -29,6 +29,7 @@ import { useDefaultAgents, type DefaultAgent, type CreateTemplateData } from '@/
 import { BatchDeployDialog } from '@/components/agents/batch-deploy-dialog'
 import { PromoteToMarketplaceDialog } from '@/components/agents/promote-to-marketplace-dialog'
 import { TemplateReviewsModerationDialog } from '@/components/agents/template-reviews-moderation-dialog'
+import { TemplateReviewQueue } from '@/components/agents/template-review-queue'
 import { StarRating } from '@/components/agents/star-rating'
 import { useMarketplaceActions } from '@/hooks/use-marketplace'
 import { useTemplateReviewActions, type TemplateRatingStats } from '@/hooks/use-template-reviews'
@@ -1059,6 +1060,8 @@ export default function AdminTemplatesPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <TemplateReviewQueue />
       </div>
     </PageTransition>
   )

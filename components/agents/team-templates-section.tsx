@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Bot, Plus, Pencil, Trash2, ArrowRight, Check, Loader2,
-  Users, Lock, Search, Building2, Eye, Copy, Settings2
+  Users, Lock, Search, Building2, Eye, Copy, Settings2,
+  Send, FileEdit, Clock, CheckCircle2, XCircle, MessageSquare,
+  Inbox
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,7 +27,13 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { LoadingButton } from '@/components/ui/loading-button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { TeamTemplateFormDialog, teamTemplateIconMap } from '@/components/agents/team-template-form-dialog'
-import { useTeamTemplates, type TeamTemplate, type CreateTeamTemplateData } from '@/hooks/use-team-templates'
+import { TemplateApprovalDialog, statusConfig } from '@/components/agents/template-approval-dialog'
+import {
+  useTeamTemplates,
+  type TeamTemplate,
+  type ApprovalHistoryEntry,
+  type TemplateStatus,
+} from '@/hooks/use-team-templates'
 import { useOrganizations, type Organization } from '@/hooks/use-organizations'
 import { toast } from 'sonner'
 
@@ -58,21 +66,41 @@ const permissionLabels: Record<string, { label: string; icon: React.ElementType 
   edit: { label: 'Editable', icon: Settings2 },
 }
 
+function StatusBadge({ status }: { status: TemplateStatus }) {
+  const config = statusConfig[status] || statusConfig.draft
+  const Icon = config.icon
+  return (
+    <Badge variant="outline" className={`text-[10px] ${config.color}`}>
+      <Icon className="w-2.5 h-2.5 mr-0.5" />
+      {config.label}
+    </Badge>
+  )
+}
+
 function TeamTemplateCard({
   template,
   onSelect,
   canEdit,
   onEdit,
   onDelete,
+  onSubmitForReview,
+  onViewApproval,
+  submitLoading,
 }: {
   template: TeamTemplate
   onSelect: (template: TeamTemplate) => void
   canEdit: boolean
   onEdit?: (template: TeamTemplate) => void
   onDelete?: (template: TeamTemplate) => void
+  onSubmitForReview?: (template: TeamTemplate) => void
+  onViewApproval?: (template: TeamTemplate) => void
+  submitLoading?: boolean
 }) {
   const IconComponent = teamTemplateIconMap[template.icon] || Bot
   const permInfo = permissionLabels[template.permission_level] || permissionLabels.use
+  const isApproved = template.status === 'approved'
+  const canSubmit = template.status === 'draft' || template.status === 'changes_requested' || template.status === 'rejected'
+  const canUse = isApproved && template.permission_level !== 'view'
 
   return (
     <motion.div
@@ -83,30 +111,41 @@ function TeamTemplateCard({
       transition={{ duration: 0.2 }}
     >
       <Card
-        className="h-full cursor-pointer border-teal-500/30 hover:border-teal-500/50 hover:shadow-lg transition-all duration-200 group bg-gradient-to-b from-teal-500/[0.03] to-transparent"
-        onClick={() => onSelect(template)}
+        className={`h-full cursor-pointer hover:shadow-lg transition-all duration-200 group ${
+          isApproved
+            ? 'border-teal-500/30 hover:border-teal-500/50 bg-gradient-to-b from-teal-500/[0.03] to-transparent'
+            : 'border-border hover:border-teal-500/30'
+        }`}
+        onClick={() => {
+          if (isApproved) {
+            onSelect(template)
+          } else if (onViewApproval) {
+            onViewApproval(template)
+          }
+        }}
       >
         <CardHeader className="pb-3">
           <div className="flex items-start gap-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-500/20 to-teal-500/5 flex items-center justify-center shrink-0 group-hover:from-teal-500/30 group-hover:to-teal-500/10 transition-colors">
-              <IconComponent className="w-6 h-6 text-teal-600" />
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+              isApproved
+                ? 'bg-gradient-to-br from-teal-500/20 to-teal-500/5 group-hover:from-teal-500/30 group-hover:to-teal-500/10'
+                : 'bg-gradient-to-br from-slate-500/15 to-slate-500/5 group-hover:from-slate-500/20 group-hover:to-slate-500/10'
+            }`}>
+              <IconComponent className={`w-6 h-6 ${isApproved ? 'text-teal-600' : 'text-muted-foreground'}`} />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
                 <CardTitle className="text-base line-clamp-1">{template.name}</CardTitle>
                 <Lock className="w-3.5 h-3.5 text-teal-500 shrink-0" />
               </div>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                 <Badge
                   variant="outline"
                   className={`text-xs ${categoryColors[template.category] || categoryColors.general}`}
                 >
                   {categoryLabels[template.category] || template.category}
                 </Badge>
-                <Badge variant="outline" className="text-[10px] border-teal-500/30 text-teal-600">
-                  <Users className="w-2.5 h-2.5 mr-0.5" />
-                  Team
-                </Badge>
+                <StatusBadge status={template.status} />
               </div>
             </div>
           </div>
@@ -115,6 +154,18 @@ function TeamTemplateCard({
           <CardDescription className="line-clamp-2 text-sm mb-3">
             {template.description || 'No description available'}
           </CardDescription>
+
+          {template.review_feedback && (template.status === 'changes_requested' || template.status === 'rejected') && (
+            <div className={`p-2 rounded-md mb-3 text-xs ${
+              template.status === 'rejected'
+                ? 'bg-red-500/5 border border-red-500/20 text-red-600'
+                : 'bg-orange-500/5 border border-orange-500/20 text-orange-600'
+            }`}>
+              <span className="font-medium">Feedback: </span>
+              <span className="text-muted-foreground line-clamp-2">{template.review_feedback}</span>
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-1.5">
             {template.tags.slice(0, 3).map((tag) => (
               <Badge key={tag} variant="secondary" className="text-xs font-normal">
@@ -145,7 +196,19 @@ function TeamTemplateCard({
               </Tooltip>
             </TooltipProvider>
             <div className="flex items-center gap-1">
-              {canEdit && onEdit && (
+              {canEdit && canSubmit && onSubmitForReview && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
+                  onClick={(e) => { e.stopPropagation(); onSubmitForReview(template) }}
+                  disabled={submitLoading}
+                >
+                  <Send className="w-3 h-3" />
+                  Submit
+                </Button>
+              )}
+              {canEdit && onEdit && (template.status === 'draft' || template.status === 'changes_requested') && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -165,7 +228,7 @@ function TeamTemplateCard({
                   <Trash2 className="w-3 h-3" />
                 </Button>
               )}
-              {template.permission_level !== 'view' && (
+              {canUse && (
                 <Button variant="ghost" size="sm" className="h-7 gap-1 group-hover:bg-teal-600 group-hover:text-white">
                   Use
                   <ArrowRight className="w-3 h-3" />
@@ -229,6 +292,7 @@ function TeamTemplatePreviewDialog({
                   })()}
                   {permInfo.label}
                 </Badge>
+                <StatusBadge status={template.status} />
               </div>
             </div>
           </div>
@@ -301,7 +365,9 @@ export function TeamTemplatesSection({
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null)
   const {
     templates, loading, error,
-    fetchTemplates, createTemplate, updateTemplate, deleteTemplate, cloneToAgent,
+    fetchTemplates, createTemplate, updateTemplate, deleteTemplate,
+    cloneToAgent, submitForReview, approveTemplate, rejectTemplate,
+    requestChanges, fetchApprovalHistory,
   } = useTeamTemplates(selectedOrg?.id || null)
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -313,6 +379,13 @@ export function TeamTemplatesSection({
   const [submitting, setSubmitting] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [templateToDelete, setTemplateToDelete] = useState<TeamTemplate | null>(null)
+  const [submitForReviewLoading, setSubmitForReviewLoading] = useState(false)
+
+  const [approvalTemplate, setApprovalTemplate] = useState<TeamTemplate | null>(null)
+  const [approvalOpen, setApprovalOpen] = useState(false)
+  const [approvalHistory, setApprovalHistory] = useState<ApprovalHistoryEntry[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
 
   useEffect(() => {
     if (currentOrganization) {
@@ -328,13 +401,24 @@ export function TeamTemplatesSection({
     }
   }, [selectedOrg, fetchTemplates])
 
-  const filteredTemplates = searchQuery
-    ? templates.filter(t =>
+  const approvedTemplates = templates.filter(t => t.status === 'approved')
+  const myDrafts = templates.filter(t => t.status !== 'approved')
+
+  const filteredApproved = searchQuery
+    ? approvedTemplates.filter(t =>
         t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         t.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         t.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
       )
-    : templates
+    : approvedTemplates
+
+  const filteredDrafts = searchQuery
+    ? myDrafts.filter(t =>
+        t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        t.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        t.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
+      )
+    : myDrafts
 
   const handleCreate = () => {
     setEditingTemplate(null)
@@ -394,7 +478,9 @@ export function TeamTemplatesSection({
           icon: data.icon,
           permission_level: data.permission_level,
         })
-        toast.success('Team template created')
+        toast.success('Team template created as draft', {
+          description: 'Submit it for review to make it available to your team.',
+        })
       }
       setFormOpen(false)
     } catch {
@@ -408,6 +494,86 @@ export function TeamTemplatesSection({
     setSelectedTemplate(template)
     setPreviewOpen(true)
   }
+
+  const handleSubmitForReview = async (template: TeamTemplate) => {
+    setSubmitForReviewLoading(true)
+    try {
+      await submitForReview(template.id)
+      toast.success('Template submitted for review', {
+        description: 'A team admin will review and approve it.',
+      })
+    } catch {
+      toast.error('Failed to submit for review')
+    } finally {
+      setSubmitForReviewLoading(false)
+    }
+  }
+
+  const handleViewApproval = useCallback(async (template: TeamTemplate) => {
+    setApprovalTemplate(template)
+    setApprovalOpen(true)
+    setHistoryLoading(true)
+    try {
+      const h = await fetchApprovalHistory(template.id)
+      setApprovalHistory(h)
+    } catch {
+      setApprovalHistory([])
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [fetchApprovalHistory])
+
+  const handleApprove = useCallback(async (feedback?: string) => {
+    if (!approvalTemplate) return
+    setActionLoading(true)
+    try {
+      await approveTemplate(approvalTemplate.id, feedback)
+      toast.success('Template approved')
+    } catch {
+      toast.error('Failed to approve')
+    } finally {
+      setActionLoading(false)
+    }
+  }, [approvalTemplate, approveTemplate])
+
+  const handleReject = useCallback(async (feedback: string) => {
+    if (!approvalTemplate) return
+    setActionLoading(true)
+    try {
+      await rejectTemplate(approvalTemplate.id, feedback)
+      toast.success('Template rejected')
+    } catch {
+      toast.error('Failed to reject')
+    } finally {
+      setActionLoading(false)
+    }
+  }, [approvalTemplate, rejectTemplate])
+
+  const handleRequestChanges = useCallback(async (feedback: string) => {
+    if (!approvalTemplate) return
+    setActionLoading(true)
+    try {
+      await requestChanges(approvalTemplate.id, feedback)
+      toast.success('Changes requested')
+    } catch {
+      toast.error('Failed to request changes')
+    } finally {
+      setActionLoading(false)
+    }
+  }, [approvalTemplate, requestChanges])
+
+  const handleApprovalSubmitForReview = useCallback(async () => {
+    if (!approvalTemplate) return
+    setActionLoading(true)
+    try {
+      await submitForReview(approvalTemplate.id)
+      toast.success('Template submitted for review')
+    } catch {
+      toast.error('Failed to submit for review')
+    } finally {
+      setActionLoading(false)
+    }
+  }, [approvalTemplate, submitForReview])
 
   const handleUseTemplate = async () => {
     if (!selectedTemplate) return
@@ -486,9 +652,9 @@ export function TeamTemplatesSection({
           </CardContent>
         </Card>
       ) : (
-        <>
+        <div className="space-y-6">
           {templates.length > 4 && (
-            <div className="relative mb-3 max-w-xs">
+            <div className="relative max-w-xs">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
               <Input
                 placeholder="Search team templates..."
@@ -498,21 +664,70 @@ export function TeamTemplatesSection({
               />
             </div>
           )}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <AnimatePresence mode="popLayout">
-              {filteredTemplates.map((template) => (
-                <TeamTemplateCard
-                  key={template.id}
-                  template={template}
-                  onSelect={handleSelectTemplate}
-                  canEdit={template.permission_level === 'edit' || true}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
-                />
-              ))}
-            </AnimatePresence>
-          </div>
-        </>
+
+          {filteredDrafts.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <FileEdit className="w-4 h-4 text-muted-foreground" />
+                <h3 className="text-sm font-medium text-muted-foreground">Your Drafts & In Review</h3>
+                <Badge variant="secondary" className="text-[10px]">{filteredDrafts.length}</Badge>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <AnimatePresence mode="popLayout">
+                  {filteredDrafts.map((template) => (
+                    <TeamTemplateCard
+                      key={template.id}
+                      template={template}
+                      onSelect={handleSelectTemplate}
+                      canEdit={true}
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      onSubmitForReview={handleSubmitForReview}
+                      onViewApproval={handleViewApproval}
+                      submitLoading={submitForReviewLoading}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
+            </div>
+          )}
+
+          {filteredApproved.length > 0 && (
+            <div>
+              {filteredDrafts.length > 0 && (
+                <div className="flex items-center gap-2 mb-3">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                  <h3 className="text-sm font-medium text-muted-foreground">Approved Templates</h3>
+                  <Badge variant="secondary" className="text-[10px]">{filteredApproved.length}</Badge>
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <AnimatePresence mode="popLayout">
+                  {filteredApproved.map((template) => (
+                    <TeamTemplateCard
+                      key={template.id}
+                      template={template}
+                      onSelect={handleSelectTemplate}
+                      canEdit={true}
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      onViewApproval={handleViewApproval}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
+            </div>
+          )}
+
+          {filteredApproved.length === 0 && filteredDrafts.length === 0 && searchQuery && (
+            <EmptyState
+              icon={Search}
+              title="No matching templates"
+              description={`No team templates match "${searchQuery}"`}
+              action={{ label: 'Clear Search', onClick: () => setSearchQuery('') }}
+            />
+          )}
+        </div>
       )}
 
       {selectedOrg && (
@@ -532,7 +747,21 @@ export function TeamTemplatesSection({
         onOpenChange={setPreviewOpen}
         onUse={handleUseTemplate}
         loading={cloning}
-        canClone={selectedTemplate?.permission_level !== 'view'}
+        canClone={selectedTemplate?.permission_level !== 'view' && selectedTemplate?.status === 'approved'}
+      />
+
+      <TemplateApprovalDialog
+        template={approvalTemplate}
+        open={approvalOpen}
+        onOpenChange={setApprovalOpen}
+        history={approvalHistory}
+        historyLoading={historyLoading}
+        isAdmin={false}
+        onApprove={handleApprove}
+        onReject={handleReject}
+        onRequestChanges={handleRequestChanges}
+        onSubmitForReview={handleApprovalSubmitForReview}
+        actionLoading={actionLoading}
       />
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>

@@ -5,6 +5,8 @@ import { supabase } from '@/lib/supabase'
 import { useStore } from '@/store'
 import { sanitizeAgentName, sanitizeAgentPrompt, sanitizeText } from '@/lib/sanitize'
 
+export type TemplateStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'changes_requested'
+
 export interface TeamTemplate {
   id: string
   organization_id: string
@@ -21,8 +23,24 @@ export interface TeamTemplate {
   settings: Record<string, unknown> | null
   permission_level: 'view' | 'use' | 'edit'
   is_active: boolean
+  status: TemplateStatus
+  submitted_at: string | null
+  reviewed_by: string | null
+  reviewed_at: string | null
+  review_feedback: string | null
   created_at: string
   updated_at: string
+}
+
+export interface ApprovalHistoryEntry {
+  id: string
+  template_id: string
+  action: string
+  performed_by: string
+  feedback: string | null
+  previous_status: string
+  new_status: string
+  created_at: string
 }
 
 export interface CreateTeamTemplateData {
@@ -116,6 +134,31 @@ export function useTeamTemplates(organizationId: string | null) {
     }
   }, [organizationId])
 
+  const fetchPendingReview = useCallback(async () => {
+    if (!organizationId) return []
+    setLoading(true)
+    setError(null)
+
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('team_templates')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .eq('status', 'pending_review')
+        .order('submitted_at', { ascending: true })
+
+      if (fetchError) throw fetchError
+
+      return data || []
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch pending templates'
+      setError(message)
+      return []
+    } finally {
+      setLoading(false)
+    }
+  }, [organizationId])
+
   const createTemplate = useCallback(async (data: CreateTeamTemplateData) => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('Not authenticated')
@@ -134,6 +177,7 @@ export function useTeamTemplates(organizationId: string | null) {
       settings: data.settings || {},
       permission_level: data.permission_level || 'use',
       is_active: true,
+      status: 'draft',
     }
 
     const { data: newTemplate, error: insertError } = await supabase
@@ -143,6 +187,14 @@ export function useTeamTemplates(organizationId: string | null) {
       .single()
 
     if (insertError) throw insertError
+
+    await supabase.from('template_approval_history').insert({
+      template_id: newTemplate.id,
+      action: 'draft_created',
+      performed_by: user.id,
+      previous_status: 'draft',
+      new_status: 'draft',
+    })
 
     setTemplates(prev => [newTemplate, ...prev])
     return newTemplate
@@ -187,6 +239,159 @@ export function useTeamTemplates(organizationId: string | null) {
     if (deleteError) throw deleteError
 
     setTemplates(prev => prev.filter(t => t.id !== id))
+  }, [])
+
+  const submitForReview = useCallback(async (id: string) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
+    const template = templates.find(t => t.id === id)
+    const prevStatus = template?.status || 'draft'
+
+    const { data: updated, error: updateError } = await supabase
+      .from('team_templates')
+      .update({
+        status: 'pending_review',
+        submitted_at: new Date().toISOString(),
+        review_feedback: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (updateError) throw updateError
+
+    const action = prevStatus === 'changes_requested' || prevStatus === 'rejected'
+      ? 'resubmitted'
+      : 'submitted'
+
+    await supabase.from('template_approval_history').insert({
+      template_id: id,
+      action,
+      performed_by: user.id,
+      previous_status: prevStatus,
+      new_status: 'pending_review',
+    })
+
+    setTemplates(prev => prev.map(t => t.id === id ? updated : t))
+    return updated
+  }, [templates])
+
+  const approveTemplate = useCallback(async (id: string, feedback?: string) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
+    const template = templates.find(t => t.id === id)
+    const prevStatus = template?.status || 'pending_review'
+
+    const { data: updated, error: updateError } = await supabase
+      .from('team_templates')
+      .update({
+        status: 'approved',
+        reviewed_by: user.id,
+        reviewed_at: new Date().toISOString(),
+        review_feedback: feedback || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (updateError) throw updateError
+
+    await supabase.from('template_approval_history').insert({
+      template_id: id,
+      action: 'approved',
+      performed_by: user.id,
+      feedback: feedback || null,
+      previous_status: prevStatus,
+      new_status: 'approved',
+    })
+
+    setTemplates(prev => prev.map(t => t.id === id ? updated : t))
+    return updated
+  }, [templates])
+
+  const rejectTemplate = useCallback(async (id: string, feedback: string) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
+    const template = templates.find(t => t.id === id)
+    const prevStatus = template?.status || 'pending_review'
+
+    const { data: updated, error: updateError } = await supabase
+      .from('team_templates')
+      .update({
+        status: 'rejected',
+        reviewed_by: user.id,
+        reviewed_at: new Date().toISOString(),
+        review_feedback: feedback,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (updateError) throw updateError
+
+    await supabase.from('template_approval_history').insert({
+      template_id: id,
+      action: 'rejected',
+      performed_by: user.id,
+      feedback,
+      previous_status: prevStatus,
+      new_status: 'rejected',
+    })
+
+    setTemplates(prev => prev.map(t => t.id === id ? updated : t))
+    return updated
+  }, [templates])
+
+  const requestChanges = useCallback(async (id: string, feedback: string) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
+    const template = templates.find(t => t.id === id)
+    const prevStatus = template?.status || 'pending_review'
+
+    const { data: updated, error: updateError } = await supabase
+      .from('team_templates')
+      .update({
+        status: 'changes_requested',
+        reviewed_by: user.id,
+        reviewed_at: new Date().toISOString(),
+        review_feedback: feedback,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (updateError) throw updateError
+
+    await supabase.from('template_approval_history').insert({
+      template_id: id,
+      action: 'changes_requested',
+      performed_by: user.id,
+      feedback,
+      previous_status: prevStatus,
+      new_status: 'changes_requested',
+    })
+
+    setTemplates(prev => prev.map(t => t.id === id ? updated : t))
+    return updated
+  }, [templates])
+
+  const fetchApprovalHistory = useCallback(async (templateId: string) => {
+    const { data, error: fetchError } = await supabase
+      .from('template_approval_history')
+      .select('*')
+      .eq('template_id', templateId)
+      .order('created_at', { ascending: false })
+
+    if (fetchError) throw fetchError
+    return (data || []) as ApprovalHistoryEntry[]
   }, [])
 
   const cloneToAgent = useCallback(async (template: TeamTemplate) => {
@@ -245,9 +450,15 @@ export function useTeamTemplates(organizationId: string | null) {
     error,
     fetchTemplates,
     fetchAllTemplates,
+    fetchPendingReview,
     createTemplate,
     updateTemplate,
     deleteTemplate,
+    submitForReview,
+    approveTemplate,
+    rejectTemplate,
+    requestChanges,
+    fetchApprovalHistory,
     cloneToAgent,
     searchTemplates,
     getCategories,
