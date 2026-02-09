@@ -210,12 +210,12 @@ Allow admins to feature specific templates for prominent display on the template
 5. Featured badge on template cards
 
 **Acceptance Criteria:**
-- [ ] Featured templates section on templates page
-- [ ] Admin can mark templates as featured
-- [ ] Optional expiration date for featured status
-- [ ] Maximum featured templates limit (e.g., 6)
-- [ ] Featured badge visible on cards
-- [ ] Auto-expire featured status when date passes
+- [X] Featured templates section on templates page
+- [X] Admin can mark templates as featured
+- [X] Optional expiration date for featured status
+- [X] Maximum featured templates limit (e.g., 6)
+- [X] Featured badge visible on cards
+- [X] Auto-expire featured status when date passes
 
 ---
 
