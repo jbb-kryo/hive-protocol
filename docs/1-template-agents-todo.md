@@ -182,13 +182,13 @@ Add user rating and review functionality to template pages, leveraging the exist
 5. Add "Most Popular" and "Highest Rated" sort options
 
 **Acceptance Criteria:**
-- [ ] Star rating (1-5) visible on template cards
-- [ ] Review count displayed
-- [ ] Users can submit rating + text review after using template
-- [ ] Reviews visible in template preview dialog
-- [ ] Sort templates by rating or popularity
-- [ ] One review per user per template (can update)
-- [ ] Admin can moderate/remove reviews
+- [X] Star rating (1-5) visible on template cards
+- [X] Review count displayed
+- [X] Users can submit rating + text review after using template
+- [X] Reviews visible in template preview dialog
+- [X] Sort templates by rating or popularity
+- [X] One review per user per template (can update)
+- [X] Admin can moderate/remove reviews
 
 ---
 
