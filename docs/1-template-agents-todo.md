@@ -126,12 +126,12 @@ Allow admins and team owners to deploy templates to multiple swarms or agents si
 5. Generate deployment report
 
 **Acceptance Criteria:**
-- [ ] Can select multiple target swarms from template view
-- [ ] Preview shows what will be created
-- [ ] Progress indicator during bulk deployment
-- [ ] Success/failure report after completion
-- [ ] Deployed agents linked to source template
-- [ ] Can deploy to all swarms in a team
+- [X] Can select multiple target swarms from template view
+- [X] Preview shows what will be created
+- [X] Progress indicator during bulk deployment
+- [X] Success/failure report after completion
+- [X] Deployed agents linked to source template
+- [X] Can deploy to all swarms in a team
 
 ---
 
